@@ -11,8 +11,8 @@ end
 function addTexts(textA: string, textB: string):
    if textA equals textB:
       invoke system::print("textA is equal to textB")
-   end
-end
+   done
+done
 
 invoke ::add(3, 5)
 
@@ -52,12 +52,11 @@ BaseType:
    string
 
 Bool:
-   (true | false)
+   ( true | false )
 
-Special:
-   \r
-   \n
-   \\
+Newline:
+   newline
+   newline \r
 
 Char:
    ' utf16-nonctrl '
@@ -69,18 +68,19 @@ Byte:
    0-255 b
 
 Integer:
-   1-9 {0-9}
+   1-9 { 0-9 }
 
 Decimal:
-   (0 . 0-9 | Integer [. 0-9]) {0-9} (f | d)
+   ( 0 . 0-9 | Integer [ . 0-9 ] ) { 0-9 } ( f | d )
 
 Number:
    Byte
    Integer
    Decimal
+   Exponent
 
-ExponentNumber:
-   Number (e | E) (+ | -) Integer 
+Exponent:
+   ( Integer | Decimal ) ( e | E ) ( + | - ) Integer 
 
 Value:
    Bool
@@ -89,30 +89,92 @@ Value:
    Number
 
 ValueList:
-   [Value {, Value}]
-
-Token:
-   invoke
-   done
-   store
-   compare
+   [ Value { , Value } ]
 
 Instruction:
-   //TODO: MAKE THIS HERE
+   Create
+   Store
+   Delete
+   Calc
+   For
+   ForComplex
+   If
+   Increment
+   Decrement
+   Exit
 
-CodeBlock:
-   { Instruction }
+Context: 
+   { Instruction } done
+
+Create:
+   create Identifier [ : BasicType ]
+
+Store:
+   store ( Value | Identifier ) Identifier
+
+StoreLast:
+   store Identifier
+
+Delete:
+   delete Identifier
+
+Increment:
+   ( inc | increment ) Identifier
+
+Decrement:
+   ( dec | decrement ) Identifier
+
+LogicalConnect:
+  ||
+  &&
+
+LogicalCompare:
+  <
+  >
+  <=
+  >=
+
+Equals:
+  ==
+
+Operator:
+   ( * | / | + | - )
+
+Operand:
+   ( Identifier | Value )
+
+Calculation:
+   ( Operand | ( Calc ) ) Operator ( Operand | ( Calc ) ) { Operator ( Operand | ( Calc ) ) }
+
+Calc:
+   calc Calculation
+
+NumOrId:
+   ( Number | Identifier )
+
+LogicContruct:
+  ( NumOrId ( LogicalCompare | Equals ) NumOrId ) { LogicalConnect LogicalConstruct }
+
+Logical:
+   logic LogicConstruct
+
+For:
+   for ( Identifier | Number ) : Context
+
+ForComplex:
+   for ( up | down ) ( Identifier | Number ) until ( ( below | over ) Number | ( Identifier | Number | Invoke | Logical ) ) : Context done
+
+While:
+   while ( Logical | Invoke ) : Context
+
+Else:
+   else : Context
+
+If: 
+   if ( FunctionReference | Identifier | Bool | Logical ) : Context ( else If | Else )
 
 FunctionReference:
    invoke [ Identifier ] :: Identifier ( ValueList ) 
-   
-Else:
-   else : CodeBlock done
-
-If: 
-   if ( FunctionReference | Value | ... ) : CodeBlock (else If | Else | done)
 
 FunctionDeclaration:
-   function Identifier ( [ Identifier : BasicType { , Identifier : BasicType } ] ) : CodeBlock done
-
-   
+   function Identifier ( [ Identifier : BasicType { , Identifier : BasicType } ] ) : Context

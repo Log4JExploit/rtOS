@@ -1,4 +1,5 @@
-
+#include <cstdint>
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -269,7 +270,33 @@ void util_clear(char* memory, uint32_t size) {
 }
 
 void util_shiftHeap() {
-## !Create this here!    
+   int index = *memoryAreaIndex;
+   
+   MemoryArea *lastMoved = nullptr;
+   char       *lastMovedFirst = nullptr;
+
+   char *freePlace = heap;
+   
+   for(int i = 0; i < index; i++) {
+      MemoryArea *next = &memoryAreas[0];
+      for(int j = 0; j < index; j++) {
+	 MemoryArea *m = &memoryAreas[j];
+         if(m->first < next->first && m->first > lastMovedFirst) {
+	    next = m;
+         }
+      }
+
+      if(next->first > freePlace) {
+         for(int i = 0; i < next->size; i++) {
+            freePlace[i] = next->first[i];
+	 }
+         next->first = freePlace;
+	 freePlace = next->first + next->size;
+      }
+
+      lastMoved = next;
+      lastMovedFirst = next->first;
+   }
 }
 
 void util_shiftHeapSystem() {
@@ -296,29 +323,29 @@ void util_write(const char *text, char *target, int offset, int length) {
 }
 
 MemoryArea* sys_memoryBlocks(OSProcess *process) {
-   MemoryArea *buffer = os_alloc(process, (uint16_t)64);
    MemoryArea *textBuffer = os_alloc(process, (uint16_t)(32 * memoryAreaLimit + 1));
    char *text = textBuffer->first;
    int index = 0;
 
+   std::stringstream stream;
+
+   stream << "Memory blocks: ";
+   stream << (int) *memoryAreaIndex;
+   stream << "\n";
+
    for(int i = 0; i < memoryAreaLimit; i++) {
       MemoryArea *area = &memoryAreas[i];
-      if(area->size == 0) {
-         continue;
+      if(area->size != 0) {
+         stream << i;
+         stream << (int) area->size;
       }
-      std::string indexAsStr = std::to_string(i);
-      std::string sizeAsStr = std::to_string(area->size);
-      util_write(indexAsStr.c_str(), text, index, indexAsStr.length());
-      index += indexAsStr.length();
-      util_write(": ", text, index, 2);
-      index += 2;
-      util_write(sizeAsStr.c_str(), text, index, sizeAsStr.length());
-      index += sizeAsStr.length();
-      text[index] = 10;
-      index++;
    }
    
-   text[index] = 0;
+   std::string result;
+   stream >> result;
+
+   util_write(result.c_str(), text, 0, result.length());
+   text[result.length()] = 0;
    return textBuffer;
 }
 
