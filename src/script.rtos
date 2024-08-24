@@ -1,0 +1,118 @@
+# <rtOS>
+
+function add(a: int, b: int):
+   create sum: int
+   calc a + (b * 4)
+   store sum
+   invoke system::print("")
+   return sum
+end
+
+function addTexts(textA: string, textB: string):
+   if textA equals textB:
+      invoke system::print("textA is equal to textB")
+   end
+end
+
+invoke ::add(3, 5)
+
+### Abstract ###
+
+This document contains the syntax and grammer
+of the runtimeOS script language.
+
+### Document Syntax ###
+
+{x}: One or more of x
+[x]: One ore zero of x
+(a | b): either a or b
+_any: any character
+33-123: any number between 33 and 123, including 33 and 123
+x-x: any range of symbols, where x is the actual character (alpha, digits, etc.), including x. 
+!x-!x: any range of sybols, where x is the number substitute found for the actual character in the ascii table, including x. Must be positive Integer smaller than or equal to 255.
+utf8: any utf8 character
+utf16: any utf16 character
+(utf8 | utf16)-nonctrl: any non-control character, meaning the exclusion of characters !0-!31 
+newline: a literal new line character (aka \n)
+
+### Definitions ###
+
+Identifier:
+   (a-z | $) {(a-z | A-Z | 0-9 | $ | _)}
+
+BaseType:
+   bool
+   byte
+   char
+   short
+   int
+   float
+   double
+   long
+   string
+
+Bool:
+   (true | false)
+
+Special:
+   \r
+   \n
+   \\
+
+Char:
+   ' utf16-nonctrl '
+
+String:
+   " { utf16-nonctrl } "
+
+Byte:
+   0-255 b
+
+Integer:
+   1-9 {0-9}
+
+Decimal:
+   (0 . 0-9 | Integer [. 0-9]) {0-9} (f | d)
+
+Number:
+   Byte
+   Integer
+   Decimal
+
+ExponentNumber:
+   Number (e | E) (+ | -) Integer 
+
+Value:
+   Bool
+   Char
+   String
+   Number
+
+ValueList:
+   [Value {, Value}]
+
+Token:
+   invoke
+   done
+   store
+   compare
+
+Instruction:
+   //TODO: MAKE THIS HERE
+
+CodeBlock:
+   { Instruction }
+
+FunctionReference:
+   invoke [ Identifier ] :: Identifier ( ValueList ) 
+   
+Else:
+   else : CodeBlock done
+
+If: 
+   if ( FunctionReference | Value | ... ) : CodeBlock (else If | Else | done)
+
+FunctionDeclaration:
+   function Identifier ( [ Identifier : BasicType { , Identifier : BasicType } ] ) : CodeBlock done
+
+   
