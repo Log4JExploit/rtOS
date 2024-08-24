@@ -1,21 +1,5 @@
 # <rtOS>
 
-function add(a: int, b: int):
-   create sum: int
-   calc a + (b * 4)
-   store sum
-   invoke system::print("")
-   return sum
-end
-
-function addTexts(textA: string, textB: string):
-   if textA equals textB:
-      invoke system::print("textA is equal to textB")
-   done
-done
-
-invoke ::add(3, 5)
-
 ### Abstract ###
 
 This document contains the syntax and grammer
