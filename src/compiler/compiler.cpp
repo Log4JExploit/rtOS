@@ -4,6 +4,12 @@
 
 using namespace std;
 
+enum class Token {
+   Keyword, 
+   Identifier, 
+   Value  
+};
+
 enum class BasicType {
    Bool,
    Byte,
@@ -16,19 +22,30 @@ enum class BasicType {
    String
 };
 
-struct ConstantValue {
+struct Variable {
    BasicType type;
    int sizeInBytes;
    char *data;
    int id;
-}
-
-struct Function {
-       
+   bool readOnly;
 };
 
-int valuesCounter;
-ConstantValue *values;
+struct Parameter {
+   BasicType type;
+   int id;
+};
+
+struct Function {
+   Parameter *parameters;
+   int parameterCount;
+   int id;
+};
+
+Function *functions;
+int functionsCounter;
+
+Variable *constants;
+int constantsCounter;
 
 
 int main(int argsCount, char **args) {
@@ -43,7 +60,7 @@ int main(int argsCount, char **args) {
    ifstream inputFile(inputFileName);
    ofstream outputFile(outputFileName); 
 
-   if(!inputFile.is_open()) {
+   if(!inputFile.is_open()){
       return 2;
    }
 

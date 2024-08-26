@@ -1,0 +1,7 @@
+#<rtos>
+
+function myfunction(input: int):
+   invoke system::print(input)
+done
+
+invoke ::myfunction(4)

@@ -1,0 +1,33 @@
+## Abstract ##
+
+This document describes the bytecode specifications
+of the runtimeOS script language.
+
+
+## Document Syntax ##
+
+Per declaration:
+   First line for field names: header payload
+   Second line for byte count: [4]    [VLB]
+
+Each declaration serves as a section that can later be referenced.
+
+Byte counts, or exact byte 
+sequences can be defined as follows:
+
+[txt x]: A block of data with the exact byte sequence written at x
+[n]:     A block of data where n is the byte count
+[VLB]:   A variable block of data, where the byte count is defined by the value saved in the block beforehand
+[flag]:  A block of data with the size of a single byte
+[S x]:   A section will be inserted here, where x is the section
+[VCS x]: A section will be repeated here as often as declared in the previous block, where the section to insert is x
+
+
+## Specifications ##
+
+Header:
+   Unique Sequence 
+   [txt rtos]           
+
+ConstantsTable:
+   
