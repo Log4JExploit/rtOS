@@ -56,6 +56,16 @@ struct Token {
    int length;
 };
 
+struct TokenTreeNode {
+   TokenTreeNode *nodes;
+   TokenType *token;
+   char *keyword;
+};
+
+struct Statement {
+   Token **tokens;
+};
+
 enum class BasicType {
    Bool,
    Byte,
@@ -108,9 +118,7 @@ Token nextSpecialToken(char *text, int length);
 
 // PARSER
 
-void verify(vector<Token> *tokens) {
-    
-}
+void verify(vector<Token> *tokens);
 
 /* Util Functions */
 
@@ -180,10 +188,6 @@ vector<Token> tokenize(char *text, int length) {
       Token token = nextToken(&text[index], length - index);
       tokens.push_back(token);
       index += token.length;
-      char *copy = static_cast<char*>(malloc(token.length + 1));
-      memcpy(copy, token.text, token.length);
-      copy[token.length] = 0;
-      cout << "Token Resut: " << copy << endl;
    }
    return tokens;
 }
