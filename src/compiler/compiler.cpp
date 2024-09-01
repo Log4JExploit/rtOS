@@ -58,12 +58,9 @@ struct Token {
 
 struct TokenTreeNode {
    TokenTreeNode *nodes;
-   TokenType *token;
+   TokenType token;
    char *keyword;
-};
-
-struct Statement {
-   Token **tokens;
+   char *name;
 };
 
 enum class BasicType {
@@ -118,12 +115,16 @@ Token nextSpecialToken(char *text, int length);
 
 // PARSER
 
+void initStatements();
+TokenTreeNode createNode(int branches);
 void verify(vector<Token> *tokens);
 
 /* Util Functions */
 
 int arrayFind(const char *array[], char* text, int length);
 char* charcpy(const char *src, int length);
+std::string readFile(const char *file);
+void writeFile(const char *src, const char *file);
 
 bool isAlphabetic(char character);
 bool isUpper(char character);
@@ -143,30 +144,10 @@ int main(int argsCount, char **args) {
    string inputFileName(args[1]);
    string outputFileName(args[2]);
 
-   ifstream inputFile(inputFileName);
-   ofstream outputFile(outputFileName); 
-
-   if(!inputFile.is_open()){
-      return 2;
-   }
-
-   std::string inputContent;
-
-   while(inputFile) {
-       int read = inputFile.get();
-       if(read == 13 || read == -1) {
-           continue;
-       }
-       inputContent.push_back((char) read);
-       cout << read << endl;
-   } 
- 
-   int length = inputContent.length(); 
-   char *content = charcpy(inputContent.c_str(), length);
+   string contentStr = readFile(inputFileName);
+   char *content = charcpy(contentStr.c_str(), length);
 
    cout << content << endl;
-
-   inputFile.close();
    
    vector<Token> tokens = tokenize(content, length);
   
@@ -304,7 +285,47 @@ Token nextKeywordToken(char *text, int length) {
 
 /* verify */
 
+void verify(vector<Token> *tokens) {
+   
+}
 
+void collapseIdentifiers(vector<Token> *tokens) {
+   int removed = 0;
+   for (int i = 0; i < tokens->size(); i++) {
+      int token = static_cast<int>(token[i - removed]);
+      switch(token) {
+         case 1:
+	 case 2:
+         case 23:
+	    break;
+	 case 31:
+	 case 32:
+	    break;
+	 default 
+      }
+   }
+}
+
+/*
+ 
+struct TokenTreeNode {
+   TokenTreeNode *nodes;
+   TokenType *token;
+   char *keyword;
+   char *name;
+};
+ */
+TokenTreeNode createNode(int branches) {
+   TokenTreeNode node;
+   node.nodes = static_cast<TokenTreeNode*>(malloc(sizeof(TokenTreeNode*) * branches));
+   return node;
+}
+
+void initStatements() {
+   TokenTreeNode functionStatement = createNode(1);
+   
+   
+}
 
 /* util */
 
@@ -341,6 +362,34 @@ char* charcpy(const char *src, int length) {
    memcpy(copy, src, length);
    copy[length] = 0;
    return copy;
+}
+
+string readFile(const char *name) {
+   string inputFileName(args[1]);
+   ifstream inputFile(inputFileName);
+
+   if(!inputFile.is_open()){
+      return 2;
+   }
+
+   string inputContent;
+
+   while(inputFile) {
+       int read = inputFile.get();
+       if(read == 13 || read == -1) {
+           continue;
+       }
+       inputContent.push_back((char) read);
+       cout << read << endl;
+   } 
+}
+
+void writeFile(const char *src, const char *file) {
+   ofstream outputFile(outputFileName); 
+   if(!outputFile.is_open()) {
+      cout << "Unable to open " << file << " for writing, exiting!";
+      exit(-1);
+   }
 }
 
 bool isAlphabetic(char c) {
