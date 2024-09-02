@@ -8,6 +8,7 @@
 using namespace std;
 
 enum class TokenType {
+   Context,
    Keyword,
    Identifier,
    Digits,
@@ -34,6 +35,7 @@ enum class TokenType {
    Dollar,
    Space,
    Point,
+   Comma,
 
    And,
    Or,
@@ -43,6 +45,13 @@ enum class TokenType {
    NewLine, 
    Other,
    EoF
+};
+
+enum class TokenMode {
+   ONCE,
+   ONCE_OR_NONE,
+   ONCE_OR_MORE,
+   MORE_OR_NONE
 };
 
 const char *keywords[] = {
@@ -60,33 +69,59 @@ class TokenNode {
 public:
    TokenNode(vector<variant<TokenNode, TokenType, const char*>> nodes) {
       this->list = nodes;
+      this->mode = TokenMode::ONCE;
    }
 
-   TokenNode(vector<variant<TokenNode, TokenType, const char*>> nodes, bool repeat) {
+   TokenNode(vector<variant<TokenNode, TokenType, const char*>> nodes, TokenMode mode) {
       this->list = nodes;
-      this->repeat = repeat;
+      this->mode = mode;
    }
    
    TokenNode(TokenType type) {
       this->list = { type };
+      this->mode = TokenMode::ONCE;
    }
    
-   TokenNode(TokenType type, bool repeat) {
+   TokenNode(TokenType type, TokenMode mode) {
       this->list = { type };
-      this->repeat = repeat;
+      this->mode = mode;
    }
 
    vector<variant<TokenNode, TokenType, const char*>> getList() {
       return this->list;
    }
 
-   bool canRepeat() {
-      return this->repeat;
+   void setMode(TokenMode mode) {
+      this->mode = mode;
    }
 
+   TokenMode getMode() {
+      return this->mode;
+   }
 private:
-   bool repeat;
+   TokenMode mode;
    vector<variant<TokenNode, TokenType, const char*>> list;
+};
+
+class ContextContainer {
+   public:
+      ContextContainer(TokenNode *statement) {
+         this->statement = statement;
+	 this->statements = vector<ContextContainer>();
+      }
+
+      void addStatement(ContextContainer container) {
+         this->statements.push_back(container);
+      }
+
+      TokenNode getStatement() {
+         return *(this->statement);
+      }
+
+   private:
+      TokenNode *statement;
+      vector<ContextContainer> statements;
+      char *name;
 };
 
 enum class BasicType {
@@ -121,6 +156,8 @@ struct Function {
 };
 
 Token endOfFileToken;
+vector<TokenNode> *ast;
+
 Function *functions;
 int functionsCounter;
 
@@ -186,17 +223,26 @@ int main(int argsCount, char **args) {
 /* tokenizer */
 
 vector<Token> tokenize(char *text, int length) {
+   bool comment = false;
    int index = 0;
    vector<Token> tokens;
-   TokenType last = TokenType::EoF;
+   TokenType last = TokenType::NewLine;
+   
    while(index < length) {
       Token token = nextToken(&text[index], length - index);
-      
-      if(last == TokenType::NewLine && token.type == TokenType::HashTag) {
-          int commentLength = token.length;
+
+      if(last == TokenType::NewLine && token.type == TokenType::Hashtag) {
+         comment = true; 
       }
 
-      tokens.push_back(token);
+      if(token.type == TokenType::NewLine) {
+         comment = false;
+      }
+
+      if(!comment) {
+         tokens.push_back(token);
+      }
+      
       last = token.type;
       index += token.length;
    }
@@ -251,6 +297,7 @@ Token nextSpecialToken(char *text, int length) {
       case '#': token.type = TokenType::Hashtag; break;
       case ':': token.type = TokenType::Colon; break;
       case '.': token.type = TokenType::Point; break;
+      case ',': token.type = TokenType::Comma; break;
       
       case '\'': token.type = TokenType::QuoteSingle; break;
       case '\"': token.type = TokenType::QuoteDouble; break;
@@ -274,7 +321,7 @@ Token nextAlphaOrNumToken(char *text, int length, bool numeric) {
    int index = 0;
    while(text[index] != 0 && index < length) {
       char c = text[index];
-      if(numeric ? !isNumeric(c) : !(isAlphabetic(c) || c != '$')) {
+      if(numeric ? !isNumeric(c) : !(isAlphabetic(c) || c == '$')) {
          break;
       }
       index++;
@@ -316,33 +363,44 @@ Token nextKeywordToken(char *text, int length) {
 /* verify */
 
 void verify(vector<Token> *tokens) {
-   
+  ContextContainer cc(nullptr);
+  
+/*
+   if constexpr (std::is_same_v<decltype(arg), int>) {
+      
+   }*/
 }
 
+void verifyContext()
+
 void initStatements() {
-   TokenNode typeDeclaration({
+   *ast = vector<TokenNode>();
+
+   /*TokenNode typeDeclaration({
       TokenType::Identifier,
       TokenType::Colon,
-      TokenType::Separator,
-      TokenType::Identifier
-   });
+      TokenType::Identifier,
+      TokenType::Comma
+   });*/
 
    TokenNode create({ 
       "create", 
-      TokenType::Separator,
       TokenType::Identifier,
       TokenNode({
          TokenType::Colon,
 	 TokenType::Keyword
-      }, true)
+      }, TokenMode::ONCE_OR_NONE)
    });
 
-   TokenNode function({
+   ast->push_back(create);
+
+   /*TokenNode function({
       "function",
       TokenType::Separator,
       TokenType::Identifier,
-      TokenType::BracketOpen
-   }); 
+      TokenType::BracketOpen,
+      TokenType::BracketClose
+   });*/ 
 }
 
 /* util */

@@ -1,0 +1,4 @@
+/src/compiler/build/*
+/src/os/build/*
+/src/lib/build/*
+/src/runtime/build/*
