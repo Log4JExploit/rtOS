@@ -3,13 +3,14 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <variant>
 
 using namespace std;
 
 enum class TokenType {
    Keyword,
+   Identifier,
    Digits,
-   Alpha,
    
    BracketOpen,
    BracketClose,
@@ -45,9 +46,8 @@ enum class TokenType {
 };
 
 const char *keywords[] = {
-	          "bool", "char", "byte", "long", "int", "double", "float", "short", "string", "null"
                   "create", "store", "for", "delete", "if", "calc", "inc", "dec", "exit", "done",
-                  "up", "down", "below", "above", "not", "invoke", "function", nullptr
+                  "up", "down", "below", "above", "not", "invoke", "function", "void", nullptr
 };
 
 struct Token {
@@ -56,11 +56,37 @@ struct Token {
    int length;
 };
 
-struct TokenTreeNode {
-   TokenTreeNode *nodes;
-   TokenType token;
-   char *keyword;
-   char *name;
+class TokenNode {
+public:
+   TokenNode(vector<variant<TokenNode, TokenType, const char*>> nodes) {
+      this->list = nodes;
+   }
+
+   TokenNode(vector<variant<TokenNode, TokenType, const char*>> nodes, bool repeat) {
+      this->list = nodes;
+      this->repeat = repeat;
+   }
+   
+   TokenNode(TokenType type) {
+      this->list = { type };
+   }
+   
+   TokenNode(TokenType type, bool repeat) {
+      this->list = { type };
+      this->repeat = repeat;
+   }
+
+   vector<variant<TokenNode, TokenType, const char*>> getList() {
+      return this->list;
+   }
+
+   bool canRepeat() {
+      return this->repeat;
+   }
+
+private:
+   bool repeat;
+   vector<variant<TokenNode, TokenType, const char*>> list;
 };
 
 enum class BasicType {
@@ -109,14 +135,13 @@ vector<Token> tokenize(char *text, int length);
 
 Token nextToken(char *text, int length);
 Token nextKeywordToken(char *text, int length);
-Token nextAlphabeticToken(char *text, int length);
+Token nextIdentifierToken(char *text, int length);
 Token nextNumericToken(char *text, int length);
 Token nextSpecialToken(char *text, int length);
 
 // PARSER
 
 void initStatements();
-TokenTreeNode createNode(int branches);
 void verify(vector<Token> *tokens);
 
 /* Util Functions */
@@ -144,18 +169,16 @@ int main(int argsCount, char **args) {
    string inputFileName(args[1]);
    string outputFileName(args[2]);
 
-   string contentStr = readFile(inputFileName);
-   char *content = charcpy(contentStr.c_str(), length);
+   string contentStr = readFile(inputFileName.c_str());
+   char *content = charcpy(contentStr.c_str(), contentStr.length());
 
    cout << content << endl;
    
-   vector<Token> tokens = tokenize(content, length);
+   vector<Token> tokens = tokenize(content, contentStr.length());
   
    for(Token token : tokens) {
       cout << "\"" << token.text << "\", ";
    }
-
-   outputFile.close();
 
    return 0;
 }
@@ -165,9 +188,16 @@ int main(int argsCount, char **args) {
 vector<Token> tokenize(char *text, int length) {
    int index = 0;
    vector<Token> tokens;
+   TokenType last = TokenType::EoF;
    while(index < length) {
       Token token = nextToken(&text[index], length - index);
+      
+      if(last == TokenType::NewLine && token.type == TokenType::HashTag) {
+          int commentLength = token.length;
+      }
+
       tokens.push_back(token);
+      last = token.type;
       index += token.length;
    }
    return tokens;
@@ -184,7 +214,7 @@ Token nextToken(char *text, int length) {
       if(isLower(first)) {
          return nextKeywordToken(text, length);
       } else {
-         return nextAlphabeticToken(text, length);
+         return nextIdentifierToken(text, length);
       }
    } else if(isNumeric(first)) {
       return nextNumericToken(text, length);
@@ -244,7 +274,7 @@ Token nextAlphaOrNumToken(char *text, int length, bool numeric) {
    int index = 0;
    while(text[index] != 0 && index < length) {
       char c = text[index];
-      if(numeric ? !isNumeric(c) : !isAlphabetic(c)) {
+      if(numeric ? !isNumeric(c) : !(isAlphabetic(c) || c != '$')) {
          break;
       }
       index++;
@@ -255,13 +285,13 @@ Token nextAlphaOrNumToken(char *text, int length, bool numeric) {
    }
 
    Token token;
-   token.type = numeric ? TokenType::Digits : TokenType::Alpha;
+   token.type = numeric ? TokenType::Digits : TokenType::Identifier;
    token.text = charcpy(text, index);
    token.length = index;
    return token;
 }
 
-Token nextAlphabeticToken(char *text, int length) {
+Token nextIdentifierToken(char *text, int length) {
    return nextAlphaOrNumToken(text, length, false);
 }
 
@@ -273,7 +303,7 @@ Token nextKeywordToken(char *text, int length) {
    int keywordLength = arrayFind(keywords, text, length);
 
    if(keywordLength < 1) {
-      return nextAlphabeticToken(text, length);
+      return nextIdentifierToken(text, length);
    }
 
    Token token;
@@ -289,42 +319,30 @@ void verify(vector<Token> *tokens) {
    
 }
 
-void collapseIdentifiers(vector<Token> *tokens) {
-   int removed = 0;
-   for (int i = 0; i < tokens->size(); i++) {
-      int token = static_cast<int>(token[i - removed]);
-      switch(token) {
-         case 1:
-	 case 2:
-         case 23:
-	    break;
-	 case 31:
-	 case 32:
-	    break;
-	 default 
-      }
-   }
-}
-
-/*
- 
-struct TokenTreeNode {
-   TokenTreeNode *nodes;
-   TokenType *token;
-   char *keyword;
-   char *name;
-};
- */
-TokenTreeNode createNode(int branches) {
-   TokenTreeNode node;
-   node.nodes = static_cast<TokenTreeNode*>(malloc(sizeof(TokenTreeNode*) * branches));
-   return node;
-}
-
 void initStatements() {
-   TokenTreeNode functionStatement = createNode(1);
-   
-   
+   TokenNode typeDeclaration({
+      TokenType::Identifier,
+      TokenType::Colon,
+      TokenType::Separator,
+      TokenType::Identifier
+   });
+
+   TokenNode create({ 
+      "create", 
+      TokenType::Separator,
+      TokenType::Identifier,
+      TokenNode({
+         TokenType::Colon,
+	 TokenType::Keyword
+      }, true)
+   });
+
+   TokenNode function({
+      "function",
+      TokenType::Separator,
+      TokenType::Identifier,
+      TokenType::BracketOpen
+   }); 
 }
 
 /* util */
@@ -364,12 +382,13 @@ char* charcpy(const char *src, int length) {
    return copy;
 }
 
-string readFile(const char *name) {
-   string inputFileName(args[1]);
+string readFile(const char *filename) {
+   string inputFileName(filename);
    ifstream inputFile(inputFileName);
 
    if(!inputFile.is_open()){
-      return 2;
+      cerr << "Unable to open file '" << filename << "' for writing" << endl;
+      exit(1);
    }
 
    string inputContent;
@@ -381,15 +400,18 @@ string readFile(const char *name) {
        }
        inputContent.push_back((char) read);
        cout << read << endl;
-   } 
+   }
+
+   return inputContent; 
 }
 
-void writeFile(const char *src, const char *file) {
-   ofstream outputFile(outputFileName); 
+void writeFile(const char *src, const char *filename) {
+   ofstream outputFile(filename); 
    if(!outputFile.is_open()) {
-      cout << "Unable to open " << file << " for writing, exiting!";
+      cout << "Unable to open " << filename << " for writing, exiting!";
       exit(-1);
    }
+   cout << "TODO: Writing to file" << endl;
 }
 
 bool isAlphabetic(char c) {
