@@ -51,7 +51,8 @@ enum class TokenMode {
    ONCE,
    ONCE_OR_NONE,
    ONCE_OR_MORE,
-   MORE_OR_NONE
+   MORE_OR_NONE,
+   BRANCH
 };
 
 const char *keywords[] = {
@@ -87,8 +88,8 @@ public:
       this->mode = mode;
    }
 
-   vector<variant<TokenNode, TokenType, const char*>> getList() {
-      return this->list;
+   vector<variant<TokenNode, TokenType, const char*>>* getList() {
+      return &(this->list);
    }
 
    void setMode(TokenMode mode) {
@@ -117,11 +118,43 @@ class ContextContainer {
       TokenNode getStatement() {
          return *(this->statement);
       }
-
+      
+      void setName(char *name) {
+         this->name = name;
+      }
    private:
       TokenNode *statement;
       vector<ContextContainer> statements;
       char *name;
+};
+
+class TokenResult {
+   public:
+      TokenResult(TokenNode* node, bool satisfied, int tokenCount) {
+         this->node = node;
+	 this->satisfied = satisfied;
+	 this->tokenCount = tokenCount;
+      }
+
+      bool isEmpty() {
+         return this->tokenCount == 0;
+      }
+
+      bool isSatisfied() {
+         return this->satisfied;
+      }
+
+      TokenNode* getNode() {
+         return this->node;
+      }
+
+      int getTokenCount() {
+         return this->tokenCount;
+      }
+   private:
+      TokenNode *node;
+      bool satisfied;
+      int tokenCount;
 };
 
 enum class BasicType {
@@ -180,6 +213,9 @@ Token nextSpecialToken(char *text, int length);
 
 void initStatements();
 void verify(vector<Token> *tokens);
+void verifyContext(ContextContainer *context, vector<Token> *list, int *index);
+int verifyStatement(TokenNode *node, vector<Token> *list, int index);
+void verifyError(vector<Token> *tokens, int index);
 
 /* Util Functions */
 
@@ -212,7 +248,9 @@ int main(int argsCount, char **args) {
    cout << content << endl;
    
    vector<Token> tokens = tokenize(content, contentStr.length());
-  
+ 
+   verifyError(&tokens, 6);
+
    for(Token token : tokens) {
       cout << "\"" << token.text << "\", ";
    }
@@ -246,6 +284,11 @@ vector<Token> tokenize(char *text, int length) {
       last = token.type;
       index += token.length;
    }
+   
+   Token endToken;
+   endToken.type = TokenType::EoF;
+   tokens.push_back(endToken);
+
    return tokens;
 }
 
@@ -364,6 +407,12 @@ Token nextKeywordToken(char *text, int length) {
 
 void verify(vector<Token> *tokens) {
   ContextContainer cc(nullptr);
+  int lineCounter = 0;
+  int index = 0; 
+
+  while((*tokens)[index].type != TokenType::EoF) {
+     verifyContext(&cc, tokens, &index);
+  }
   
 /*
    if constexpr (std::is_same_v<decltype(arg), int>) {
@@ -371,36 +420,163 @@ void verify(vector<Token> *tokens) {
    }*/
 }
 
-void verifyContext()
+void verifyContext(ContextContainer *context, vector<Token> *list, int *index) {
+   TokenNode *statement = nullptr;
+   int maxLength = 0;
+
+   for(TokenNode& node : *ast) {
+      int length = verifyStatement(&node, list, *index);
+      if(length > maxLength) {
+         maxLength = length;
+	 statement = &node;
+      }
+   }
+
+   if(maxLength == 0 || statement == nullptr) {
+      verifyError(list, *index);
+   }
+
+   *index += maxLength;
+   context->addStatement(ContextContainer(statement));
+}
+
+int verifyStatement(TokenNode *node, vector<Token> *list, int index) {
+   vector<variant<TokenNode, TokenType, const char*>> *statementTokens = node->getList();
+   int statementIndex = 0;
+
+   for(variant<TokenNode, TokenType, const char*> targetToken : *statementTokens) {
+      TokenType type = (*list)[statementIndex].type;
+      while(type == TokenType::Separator || type == TokenType::NewLine) {
+         type = (*list)[++statementIndex].type;
+      }
+
+      if(type == TokenType::EoF) {
+         return 0;
+      }
+
+      if (std::is_same_v<decltype(targetToken), const char*>) {
+         const char *keyword = get<const char*>(targetToken);
+	 Token token = (*list)[statementIndex];
+
+         if(token.type != TokenType::Keyword || strcmp(keyword, token.text) != 0) {
+             return 0;
+	 }
+
+         statementIndex++;
+      } else if ( std::is_same_v<decltype(targetToken), TokenType>) {
+         TokenType targetType = get<TokenType>(targetToken);
+	 if(targetType != type) {
+            return 0;
+	 }
+	 
+	 statementIndex++; 
+      } else {
+         
+         TokenNode node = get<TokenNode>(targetToken);
+         TokenMode mode = node.getMode();
+	 return 0;
+      }
+   }
+
+   return statementIndex;
+}
+
+void verifyError(vector<Token> *tokens, int index) {
+   int lineCount = 0;
+   int tokenIndex = 0;
+
+   for(int i = 0; i < index; i++) {
+      if((*tokens)[i].type == TokenType::NewLine) {
+          lineCount++;
+	  tokenIndex = i;
+      }
+   }
+   
+   cerr << endl;
+   cerr << "Error, unexpected Token! Line " << lineCount << ": " << endl;
+   
+   int lineErrorIndex = 1;
+
+   for(int i = tokenIndex; i < index; i++) {
+      lineErrorIndex += (*tokens)[i].length;
+      cerr << (*tokens)[i].text;
+   }
+   
+   cerr << (*tokens)[index].text;
+   cerr << endl;
+   
+   for(int i = 0; i < lineErrorIndex - 2; i++) {
+      cerr << "-";
+   }
+
+   cerr << "^" << endl;
+   exit(1);
+}
+
+void verifySubNode(TokenNode *node, TokenMode type) {
+    
+}
+
+TokenResult verifyMoreOrNone(TokenNode *node, vector<Token> *tokens, int index) {
+   
+}
+
+TokenResult verifyOneOrMore(TokenNode *node, vector<Token> *tokens, int index) {
+   bool satisfied = false;
+   TokenResult lastResult;
+
+   do {
+      result = verifyOneOrNone(node, tokens, counter + );
+      
+   } while();
+}
+
+TokenResult verifyOneOrNone(TokenNode *node, vector<Token> *tokens, int index) {
+   
+}
 
 void initStatements() {
    *ast = vector<TokenNode>();
 
-   /*TokenNode typeDeclaration({
+   TokenNode typeDeclaration({
       TokenType::Identifier,
       TokenType::Colon,
       TokenType::Identifier,
-      TokenType::Comma
-   });*/
+   }, TokenMode::ONCE);
 
    TokenNode create({ 
       "create", 
       TokenType::Identifier,
-      TokenNode({
-         TokenType::Colon,
-	 TokenType::Keyword
-      }, TokenMode::ONCE_OR_NONE)
    });
 
+   TokenNode createWithType({
+      "create",
+      TokenType::Identifier,
+      TokenType::Colon,
+      TokenType::Identifier
+   });
+
+   ast->push_back(createWithType);
    ast->push_back(create);
 
-   /*TokenNode function({
+   TokenNode function({
       "function",
-      TokenType::Separator,
       TokenType::Identifier,
       TokenType::BracketOpen,
-      TokenType::BracketClose
-   });*/ 
+      
+      TokenNode({
+          typeDeclaration,
+	  TokenNode({
+	     TokenType::Comma
+	     typeDeclaration,
+	  }, MORE_OR_NONE);
+      }, TokenMode::ONCE_OR_NONE),
+      
+      TokenType::BracketClose,
+      TokenType::Colon,
+      TokenType::Identifier,
+      TokenType::Context
+   });
 }
 
 /* util */
