@@ -8,7 +8,6 @@
 using namespace std;
 
 enum class TokenType {
-   Context,
    Keyword,
    Identifier,
    Digits,
@@ -77,16 +76,6 @@ public:
       this->list = nodes;
       this->mode = mode;
    }
-   
-   TokenNode(TokenType type) {
-      this->list = { type };
-      this->mode = TokenMode::ONCE;
-   }
-   
-   TokenNode(TokenType type, TokenMode mode) {
-      this->list = { type };
-      this->mode = mode;
-   }
 
    vector<variant<TokenNode, TokenType, const char*>>* getList() {
       return &(this->list);
@@ -130,14 +119,14 @@ class ContextContainer {
 
 class TokenResult {
    public:
-      TokenResult(TokenNode* node, bool satisfied, int tokenCount) {
+      TokenResult(TokenNode* node, bool satisfied) {
          this->node = node;
 	 this->satisfied = satisfied;
-	 this->tokenCount = tokenCount;
+	 this->tokens = {};
       }
 
       bool isEmpty() {
-         return this->tokenCount == 0;
+         return this->tokens.size() < 1;
       }
 
       bool isSatisfied() {
@@ -149,12 +138,30 @@ class TokenResult {
       }
 
       int getTokenCount() {
-         return this->tokenCount;
+         int count = 0;
+	 for(variant<TokenResult, Token> v : this->tokens) {
+            if(is_same_v<decltype(v), TokenResult>) {
+               TokenResult result = get<TokenResult>(v);
+	       count += result.getTokenCount();
+	    } else {
+               count++;
+	    }  
+	 }
+	 return count;
       }
+
+      vector<variant<TokenResult, Token>>* getTokens() {
+         return &(this->tokens);
+      }
+
+      void add(variant<TokenResult, Token> element) {
+         this->tokens.push_back(element);
+      }
+
    private:
       TokenNode *node;
       bool satisfied;
-      int tokenCount;
+      vector<variant<TokenResult, Token>> tokens;
 };
 
 enum class BasicType {
@@ -216,6 +223,13 @@ void verify(vector<Token> *tokens);
 void verifyContext(ContextContainer *context, vector<Token> *list, int *index);
 int verifyStatement(TokenNode *node, vector<Token> *list, int index);
 void verifyError(vector<Token> *tokens, int index);
+TokenResult verifyEachVariant(TokenNode *node, vector<Token> *tokens, int index);
+TokenResult verifyVariant(variant<TokenNode, TokenType, const char*> *variant, vector<Token> *tokens, int index);
+TokenResult verifyMoreOrNone(TokenNode *node, vector<Token> *tokens, int index);
+TokenResult verifyOnceOrMore(TokenNode *node, vector<Token> *tokens, int index);
+TokenResult verifyOnceOrNone(TokenNode *node, vector<Token> *tokens, int index);
+TokenResult verifyOnce(TokenNode *node, vector<Token> *tokens, int index);
+TokenResult verifyBranch(TokenNode *node, vector<Token> *tokens, int index);
 
 /* Util Functions */
 
@@ -513,26 +527,91 @@ void verifyError(vector<Token> *tokens, int index) {
    exit(1);
 }
 
-void verifySubNode(TokenNode *node, TokenMode type) {
-    
+TokenResult verifyEachVariant(TokenNode *node, vector<Token> *tokens, int index) {
+   TokenResult result(node, true);
+   int localIndex = 0;
+
+   for(variant<TokenNode, TokenType, const char*> variantObj : *(node->getList())) {
+      TokenResult subResult = verifyVariant(&variantObj, tokens, index + localIndex);
+      if(!subResult.isSatisfied()) {
+         return TokenResult(node, false);
+      }
+      if(subResult.getNode() == nullptr) {
+         vector<variant<TokenResult, Token>> *tokens = subResult.getTokens();
+         result.add((*tokens)[0]);        
+      } else {
+	 result.add(subResult);
+      }
+      localIndex = result.getTokenCount();
+   }
+   return result;
 }
 
-TokenResult verifyMoreOrNone(TokenNode *node, vector<Token> *tokens, int index) {
+TokenResult verifyVariant(variant<TokenNode, TokenType, const char*> *variantObj, vector<Token> *tokens, int index) {
+   TokenResult result(nullptr, true);
+   TokenResult fail(nullptr, false);
+   Token token = (*tokens)[index];
    
-}
-
-TokenResult verifyOneOrMore(TokenNode *node, vector<Token> *tokens, int index) {
-   bool satisfied = false;
-   TokenResult lastResult;
-
-   do {
-      result = verifyOneOrNone(node, tokens, counter + );
+   if (std::is_same_v<decltype(*variantObj), const char*>) {
+      const char *keyword = get<const char*>(*variantObj);
       
-   } while();
+      if(token.type != TokenType::Keyword || strcmp(keyword, token.text) != 0) {
+         return fail;
+      }
+
+      result.add(token);
+   } else if (std::is_same_v<decltype(variantObj), TokenType>) {
+      TokenType targetType = get<TokenType>(*variantObj);
+      
+      if(targetType != token.type) {
+         return fail;
+      }
+	 
+      result.add(token);
+   } else {     
+      TokenNode node = get<TokenNode>(*variantObj);
+      return verifyBranch(&node, tokens, index);
+   }
+   return result;
 }
 
-TokenResult verifyOneOrNone(TokenNode *node, vector<Token> *tokens, int index) {
+TokenResult verifyBranch(TokenNode *node, vector<Token> *tokens, int index) {
+   if(node->getMode() == TokenMode::ONCE) {
+      return verifyOnce(node, tokens, index);
+   } else if(node->getMode() == TokenMode::ONCE_OR_NONE) {
+      return verifyOnceOrNone(node, tokens, index);
+   } else if(node->getMode() == TokenMode::ONCE_OR_MORE) {
+      return verifyOnceOrMore(node, tokens, index);
+   } else {
+      return verifyMoreOrNone(node, tokens, index);
+   }
+}
+
+TokenResult verifyMoreOrNone(TokenNode *node, vector<Token> *tokens, int index) { 
+   return TokenResult(nullptr, false);
+}
+
+TokenResult verifyOnceOrMore(TokenNode *node, vector<Token> *tokens, int index) {
+   TokenResult result(node, true);
+   bool failed = false;
    
+   do {
+      TokenResult resultAny = verifyOnceOrNone(node, tokens, index + result.getTokenCount());
+      failed = !resultAny.isSatisfied();
+      if(!failed) {
+         result->add(resultAny);
+      }
+   } while(!failed);
+
+   return tokenCount <= 0 ? TokenResult(node, false);
+}
+
+TokenResult verifyOnceOrNone(TokenNode *node, vector<Token> *tokens, int index) {
+    return TokenResult(nullptr, false);
+}
+
+TokenResult verifyOnce(TokenNode *node, vector<Token> *tokens, int index) {
+    return verifyEachVariant(node->getList(), tokens, index);
 }
 
 void initStatements() {
@@ -569,13 +648,14 @@ void initStatements() {
 	  TokenNode({
 	     TokenType::Comma
 	     typeDeclaration,
-	  }, MORE_OR_NONE);
+	  }, TokenMode::MORE_OR_NONE)
       }, TokenMode::ONCE_OR_NONE),
       
       TokenType::BracketClose,
       TokenType::Colon,
       TokenType::Identifier,
-      TokenType::Context
+      TokenNode({}),
+      "done"
    });
 }
 
