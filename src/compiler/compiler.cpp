@@ -10,7 +10,8 @@ using namespace std;
 enum class TokenType {
    Keyword,
    Identifier,
-   Digits,
+   Number,
+   String,
    
    BracketOpen,
    BracketClose,
@@ -215,6 +216,10 @@ Token nextKeywordToken(char *text, int length);
 Token nextIdentifierToken(char *text, int length);
 Token nextNumericToken(char *text, int length);
 Token nextSpecialToken(char *text, int length);
+void evaluateNumber(char* text, int *index, vector<Token> *tokens, int length);
+void evaluateComment(char* text, int *index, vector<Token> *tokens, int length);
+void evaluateString(char* text, int *index, vector<Token> *tokens, int length);
+void evaluateUnicode(char* text, int *index, vector<Token> *tokens,  int length);
 
 // PARSER
 
@@ -281,22 +286,17 @@ vector<Token> tokenize(char *text, int length) {
    TokenType last = TokenType::NewLine;
    
    while(index < length) {
-      Token token = nextToken(&text[index], length - index);
-
-      if(last == TokenType::NewLine && token.type == TokenType::Hashtag) {
-         comment = true; 
-      }
-
-      if(token.type == TokenType::NewLine) {
-         comment = false;
-      }
-
-      if(!comment) {
-         tokens.push_back(token);
-      }
+      char first = text[index];
       
-      last = token.type;
-      index += token.length;
+      if(first == '#' && last == TokenType::NewLine) {
+         evaluateComment(text, &index, &tokens, length);
+      } else if(isNumeric(first)) {
+         evaluateNumber(text, &index, &tokens, length);
+      } else if(first == '\"') {
+         evaluateString(text, &index, &tokens, length);
+      } else {
+         evaluateToken(text, length - index);
+      }
    }
    
    Token endToken;
@@ -304,6 +304,68 @@ vector<Token> tokenize(char *text, int length) {
    tokens.push_back(endToken);
 
    return tokens;
+}
+
+
+
+void evaluateToken(char* text, int *index, vector<Token> *tokens, int length, TokenType *last) {
+   Token token = nextToken(&text[index], length - *index);
+   *last = token.type;
+   *index += token.length;
+   tokens->push_back(token);
+}
+
+
+void evaluateToken(char* text, int *index, vector<Token> *tokens, int length, TokenType *last) {
+   Token token = nextToken(&text[index], length - *index);
+   *last = token.type;
+   *index += token.length;
+   tokens->push_back(token);
+}
+
+void evaluateNumber(char* text, int *index, vector<Token> *tokens, int length) {
+}
+
+void evaluateComment(char* text, int *index, vector<Token> *tokens, int length) {
+   
+}
+
+void evaluateString(char* text, int *index, vector<Token> *tokens, int length) {
+   (*index)++;
+   string token;
+   bool terminated = false;
+   
+   while(index < length) {
+      if(text[*index] == '\') {
+         if((*index) + 1 < length) {
+            if(text[(*index) + 1] == '\"') {
+                 
+	    } else if(text[(*index) + 1] == 'u') {
+                   
+	    } else {
+
+	    }
+	 } else {
+            break;
+	 }
+      } else {
+	 if(text[*index] == '\"') {
+            
+	 }
+         token += text[*index];
+      }
+      (*index)++;
+   }
+
+   if(!terminated) {
+      verifyError(tokens, tokens->size() - 1);
+   }
+}
+
+void evaluateUnicode(char* text, int *index, vector<Token> *tokens,  int length) {
+   if(index + 4 >= length) {
+      verifyError(tokens, tokens->size() - 1);
+   }
 }
 
 Token nextToken(char *text, int length) {
@@ -482,7 +544,7 @@ int verifyStatement(TokenNode *node, vector<Token> *list, int index) {
 	 if(targetType != type) {
             return 0;
 	 }
-	 
+	
 	 statementIndex++; 
       } else {
          
@@ -494,6 +556,7 @@ int verifyStatement(TokenNode *node, vector<Token> *list, int index) {
 
    return statementIndex;
 }
+
 
 void verifyError(vector<Token> *tokens, int index) {
    int lineCount = 0;
@@ -529,20 +592,21 @@ void verifyError(vector<Token> *tokens, int index) {
 
 TokenResult verifyEachVariant(TokenNode *node, vector<Token> *tokens, int index) {
    TokenResult result(node, true);
-   int localIndex = 0;
 
    for(variant<TokenNode, TokenType, const char*> variantObj : *(node->getList())) {
-      TokenResult subResult = verifyVariant(&variantObj, tokens, index + localIndex);
+      int localIndex = index + result.getTokenCount();
+      TokenResult subResult = verifyVariant(&variantObj, tokens, index);
+      
       if(!subResult.isSatisfied()) {
          return TokenResult(node, false);
       }
+
       if(subResult.getNode() == nullptr) {
          vector<variant<TokenResult, Token>> *tokens = subResult.getTokens();
          result.add((*tokens)[0]);        
       } else {
 	 result.add(subResult);
       }
-      localIndex = result.getTokenCount();
    }
    return result;
 }
@@ -596,58 +660,53 @@ TokenResult verifyOnceOrMore(TokenNode *node, vector<Token> *tokens, int index) 
    bool failed = false;
    
    do {
-      TokenResult resultAny = verifyOnceOrNone(node, tokens, index + result.getTokenCount());
+      TokenResult resultAny = verifyOnce(node, tokens, index + result.getTokenCount());
       failed = !resultAny.isSatisfied();
       if(!failed) {
-         result->add(resultAny);
+         result.add(resultAny);
       }
    } while(!failed);
 
-   return tokenCount <= 0 ? TokenResult(node, false);
+   return result.getTokenCount() < 1 ? TokenResult(node, false) : result;
 }
 
 TokenResult verifyOnceOrNone(TokenNode *node, vector<Token> *tokens, int index) {
-    return TokenResult(nullptr, false);
+    TokenResult result = verifyOnce(node, tokens, index);
+    return result.isSatisfied() ? result : TokenResult(node, true);
 }
 
 TokenResult verifyOnce(TokenNode *node, vector<Token> *tokens, int index) {
-    return verifyEachVariant(node->getList(), tokens, index);
+    return verifyEachVariant(node, tokens, index);
 }
 
 void initStatements() {
    *ast = vector<TokenNode>();
 
-   TokenNode typeDeclaration({
-      TokenType::Identifier,
-      TokenType::Colon,
-      TokenType::Identifier,
-   }, TokenMode::ONCE);
-
-   TokenNode create({ 
-      "create", 
-      TokenType::Identifier,
-   });
-
-   TokenNode createWithType({
-      "create",
+   TokenNode* typeDeclaration = new TokenNode({
       TokenType::Identifier,
       TokenType::Colon,
       TokenType::Identifier
+   }, TokenMode::ONCE);
+
+   TokenNode* createWithType = new TokenNode({
+      "create",
+      TokenType::Identifier,
+      TokenNode({
+         TokenType::Colon,
+         TokenType::Identifier
+      }, TokenMode::ONCE_OR_NONE)
    });
-
-   ast->push_back(createWithType);
-   ast->push_back(create);
-
-   TokenNode function({
+   
+   TokenNode* function = new TokenNode({
       "function",
       TokenType::Identifier,
       TokenType::BracketOpen,
-      
+ 
       TokenNode({
-          typeDeclaration,
+          *typeDeclaration,
 	  TokenNode({
-	     TokenType::Comma
-	     typeDeclaration,
+	     TokenType::Comma,
+	     *typeDeclaration,
 	  }, TokenMode::MORE_OR_NONE)
       }, TokenMode::ONCE_OR_NONE),
       
@@ -657,6 +716,9 @@ void initStatements() {
       TokenNode({}),
       "done"
    });
+
+   ast->push_back(*function);
+   ast->push_back(*createWithType);
 }
 
 /* util */
