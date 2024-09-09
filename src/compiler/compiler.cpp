@@ -1,3 +1,4 @@
+#include <cmath>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -98,11 +99,11 @@ class ContextContainer {
    public:
       ContextContainer(TokenNode *statement) {
          this->statement = statement;
-	 this->statements = vector<ContextContainer>();
+	 this->elements = vector<variant<ContextContainer, TokenNode>*>();
       }
 
-      void addStatement(ContextContainer container) {
-         this->statements.push_back(container);
+      void add(variant<ContextContainer, TokenNode> *element) {
+         this->elements.push_back(element);
       }
 
       TokenNode getStatement() {
@@ -114,7 +115,7 @@ class ContextContainer {
       }
    private:
       TokenNode *statement;
-      vector<ContextContainer> statements;
+      vector<variant<ContextContainer, TokenNode>*> elements;
       char *name;
 };
 
@@ -140,10 +141,12 @@ class TokenResult {
 
       int getTokenCount() {
          int count = 0;
-	 for(variant<TokenResult, Token> v : this->tokens) {
+	 for(variant<TokenResult, Token, ContextContainer> v : this->tokens) {
             if(is_same_v<decltype(v), TokenResult>) {
                TokenResult result = get<TokenResult>(v);
 	       count += result.getTokenCount();
+	    } else if(is_same_v<decltype(v), ContextContainer>) {
+	       
 	    } else {
                count++;
 	    }  
@@ -151,18 +154,18 @@ class TokenResult {
 	 return count;
       }
 
-      vector<variant<TokenResult, Token>>* getTokens() {
+      vector<variant<TokenResult, Token, ContextContainer>>* getTokens() {
          return &(this->tokens);
       }
 
-      void add(variant<TokenResult, Token> element) {
+      void add(variant<TokenResult, Token, ContextContainer> element) {
          this->tokens.push_back(element);
       }
 
    private:
       TokenNode *node;
       bool satisfied;
-      vector<variant<TokenResult, Token>> tokens;
+      vector<variant<TokenResult, Token, ContextContainer>> tokens;
 };
 
 enum class BasicType {
@@ -214,12 +217,13 @@ vector<Token> tokenize(char *text, int length);
 Token nextToken(char *text, int length);
 Token nextKeywordToken(char *text, int length);
 Token nextIdentifierToken(char *text, int length);
-Token nextNumericToken(char *text, int length);
 Token nextSpecialToken(char *text, int length);
+void evaluateToken(char* text, int *index, vector<Token> *tokens, int length, TokenType *last);
 void evaluateNumber(char* text, int *index, vector<Token> *tokens, int length);
 void evaluateComment(char* text, int *index, vector<Token> *tokens, int length);
 void evaluateString(char* text, int *index, vector<Token> *tokens, int length);
-void evaluateUnicode(char* text, int *index, vector<Token> *tokens,  int length);
+char* evaluateUnicode(char* text, int *index, vector<Token> *tokens,  int length);
+int byEscapedCharacter(char c);
 
 // PARSER
 
@@ -228,6 +232,7 @@ void verify(vector<Token> *tokens);
 void verifyContext(ContextContainer *context, vector<Token> *list, int *index);
 int verifyStatement(TokenNode *node, vector<Token> *list, int index);
 void verifyError(vector<Token> *tokens, int index);
+void verifyError(vector<Token> *tokens, int index, const char *text);
 TokenResult verifyEachVariant(TokenNode *node, vector<Token> *tokens, int index);
 TokenResult verifyVariant(variant<TokenNode, TokenType, const char*> *variant, vector<Token> *tokens, int index);
 TokenResult verifyMoreOrNone(TokenNode *node, vector<Token> *tokens, int index);
@@ -242,6 +247,7 @@ int arrayFind(const char *array[], char* text, int length);
 char* charcpy(const char *src, int length);
 std::string readFile(const char *file);
 void writeFile(const char *src, const char *file);
+int hextoint(char *text, int offset, int length);
 
 bool isAlphabetic(char character);
 bool isUpper(char character);
@@ -268,12 +274,11 @@ int main(int argsCount, char **args) {
    
    vector<Token> tokens = tokenize(content, contentStr.length());
  
-   verifyError(&tokens, 6);
-
    for(Token token : tokens) {
       cout << "\"" << token.text << "\", ";
    }
-
+   
+   verifyError(&tokens, 6, "Test error!");
    return 0;
 }
 
@@ -295,77 +300,150 @@ vector<Token> tokenize(char *text, int length) {
       } else if(first == '\"') {
          evaluateString(text, &index, &tokens, length);
       } else {
-         evaluateToken(text, length - index);
+         evaluateToken(text, &index, &tokens, length, &last);
       }
    }
    
+   char *term = reinterpret_cast<char*>(malloc(1));
+   *term = '\0';
+
    Token endToken;
    endToken.type = TokenType::EoF;
+   endToken.text = term;
    tokens.push_back(endToken);
 
    return tokens;
 }
 
-
-
 void evaluateToken(char* text, int *index, vector<Token> *tokens, int length, TokenType *last) {
-   Token token = nextToken(&text[index], length - *index);
-   *last = token.type;
-   *index += token.length;
-   tokens->push_back(token);
-}
-
-
-void evaluateToken(char* text, int *index, vector<Token> *tokens, int length, TokenType *last) {
-   Token token = nextToken(&text[index], length - *index);
+   Token token = nextToken(&text[*index], length - (*index));
    *last = token.type;
    *index += token.length;
    tokens->push_back(token);
 }
 
 void evaluateNumber(char* text, int *index, vector<Token> *tokens, int length) {
+   Token numberToken;
+   numberToken.type = TokenType::Number;
+   bool terminated = false;
+   string buffer;
+   
+   while(!terminated) {
+      char next = text[*index];
+      if(isNumeric(next)) {
+         buffer += next;
+      } else {
+         switch(next) {
+            case '.':
+            case '-':
+            case '+':
+            case 'e':
+	       buffer += next;
+	       break;
+
+            case 'd':
+            case 'f':
+	       buffer += next;
+            default: 
+	       terminated = true;
+	       break;
+	 }
+      }
+
+      if(!terminated) {
+         (*index)++;
+      }
+   }
+
+   numberToken.text = charcpy(buffer.c_str(), buffer.length());
+   tokens->push_back(numberToken);
 }
 
 void evaluateComment(char* text, int *index, vector<Token> *tokens, int length) {
-   
+   while(text[*index] != '\n') {
+      (*index)++;
+   }
 }
 
 void evaluateString(char* text, int *index, vector<Token> *tokens, int length) {
    (*index)++;
-   string token;
+   string strText;
    bool terminated = false;
    
-   while(index < length) {
-      if(text[*index] == '\') {
+   while(*index < length && !terminated) {
+      if(text[*index] == '\\') {
          if((*index) + 1 < length) {
-            if(text[(*index) + 1] == '\"') {
-                 
-	    } else if(text[(*index) + 1] == 'u') {
-                   
+	    char next = text[(*index) + 1];
+            if(next == 'u') {
+               char *unicode = evaluateUnicode(text, index, tokens, length); 
+	       strText += unicode;
+	       (*index) += 6;
+	       continue;
 	    } else {
-
+	       int escapedValue = byEscapedCharacter(next);
+	       if(escapedValue == -1) {
+                  verifyError(tokens, tokens->size() - 1, "Unknown escaped character!");
+	       }
+	       strText += (char) escapedValue;
+	       (*index)++;
 	    }
 	 } else {
             break;
 	 }
       } else {
 	 if(text[*index] == '\"') {
-            
-	 }
-         token += text[*index];
+            terminated = true;
+	 } else {
+            strText += text[*index];
+         }
       }
       (*index)++;
    }
 
    if(!terminated) {
-      verifyError(tokens, tokens->size() - 1);
+      verifyError(tokens, tokens->size() - 1, "String was never terminated!");
+   }
+
+   Token stringToken;
+   stringToken.type = TokenType::String;
+   stringToken.text = charcpy(strText.c_str(), strText.length());
+   tokens->push_back(stringToken);
+}
+
+int byEscapedCharacter(char c) {
+   switch(c) {
+      case 'n': return '\n';
+      case 'r': return '\r';
+      case 't': return '\t';
+      case 'v': return '\v';
+      case 'b': return '\b';
+      case 'f': return '\f';
+      case '\\': return '\\';
+      case '\"': return '\"';
+      case '?': return '\?';
+      case '0': return '\0';
+      default:
+         return -1;
+         break;
    }
 }
 
-void evaluateUnicode(char* text, int *index, vector<Token> *tokens,  int length) {
-   if(index + 4 >= length) {
-      verifyError(tokens, tokens->size() - 1);
+char* evaluateUnicode(char* text, int *index, vector<Token> *tokens, int length) {
+   if((*index) + 4 >= length) {
+      verifyError(tokens, tokens->size() - 1, "End of file reached during unicode sequence! Expected at least 4 hex characters!");
    }
+
+   int value = hextoint(text, (*index) + 2, 4); 
+
+   if(value == -1) {
+      verifyError(tokens, tokens->size() - 1, "Non-hex character found in unicode sequence!");
+   } 
+
+   char *placeholder = reinterpret_cast<char*>(malloc(2));
+   placeholder[0] = '?';
+   placeholder[1] = '\0';
+
+   return placeholder;
 }
 
 Token nextToken(char *text, int length) {
@@ -381,8 +459,6 @@ Token nextToken(char *text, int length) {
       } else {
          return nextIdentifierToken(text, length);
       }
-   } else if(isNumeric(first)) {
-      return nextNumericToken(text, length);
    }
 
    return nextSpecialToken(text, length);
@@ -436,14 +512,15 @@ Token nextSpecialToken(char *text, int length) {
    return token;
 }
 
-Token nextAlphaOrNumToken(char *text, int length, bool numeric) {
+Token nextIdentifierToken(char *text, int length) {
    int index = 0;
-   while(text[index] != 0 && index < length) {
+   while(index < length && text[index] != '\0') {
       char c = text[index];
-      if(numeric ? !isNumeric(c) : !(isAlphabetic(c) || c == '$')) {
+      if(isAlphabetic(c) || (index > 0 && (c == '$' || isNumeric(c)))) {
+         index++;
+      } else {
          break;
       }
-      index++;
    }
 
    if(index == 0) {
@@ -451,18 +528,10 @@ Token nextAlphaOrNumToken(char *text, int length, bool numeric) {
    }
 
    Token token;
-   token.type = numeric ? TokenType::Digits : TokenType::Identifier;
+   token.type = TokenType::Identifier;
    token.text = charcpy(text, index);
    token.length = index;
    return token;
-}
-
-Token nextIdentifierToken(char *text, int length) {
-   return nextAlphaOrNumToken(text, length, false);
-}
-
-Token nextNumericToken(char *text, int length) {
-   return nextAlphaOrNumToken(text, length, true);
 }
 
 Token nextKeywordToken(char *text, int length) {
@@ -482,84 +551,29 @@ Token nextKeywordToken(char *text, int length) {
 /* verify */
 
 void verify(vector<Token> *tokens) {
-  ContextContainer cc(nullptr);
-  int lineCounter = 0;
+  ContextContainer global(nullptr);
   int index = 0; 
 
-  while((*tokens)[index].type != TokenType::EoF) {
-     verifyContext(&cc, tokens, &index);
-  }
-  
-/*
-   if constexpr (std::is_same_v<decltype(arg), int>) {
-      
-   }*/
+  verifyContext(&global, tokens, &index);
 }
 
 void verifyContext(ContextContainer *context, vector<Token> *list, int *index) {
-   TokenNode *statement = nullptr;
-   int maxLength = 0;
+   bool terminated = false;
+   while(!terminated) {
+      for(TokenNode& node : *ast) {
+         TokenResult result = verifyEachVariant(&node, list, *index);
 
-   for(TokenNode& node : *ast) {
-      int length = verifyStatement(&node, list, *index);
-      if(length > maxLength) {
-         maxLength = length;
-	 statement = &node;
       }
    }
-
-   if(maxLength == 0 || statement == nullptr) {
-      verifyError(list, *index);
-   }
-
-   *index += maxLength;
-   context->addStatement(ContextContainer(statement));
 }
 
-int verifyStatement(TokenNode *node, vector<Token> *list, int index) {
-   vector<variant<TokenNode, TokenType, const char*>> *statementTokens = node->getList();
-   int statementIndex = 0;
-
-   for(variant<TokenNode, TokenType, const char*> targetToken : *statementTokens) {
-      TokenType type = (*list)[statementIndex].type;
-      while(type == TokenType::Separator || type == TokenType::NewLine) {
-         type = (*list)[++statementIndex].type;
-      }
-
-      if(type == TokenType::EoF) {
-         return 0;
-      }
-
-      if (std::is_same_v<decltype(targetToken), const char*>) {
-         const char *keyword = get<const char*>(targetToken);
-	 Token token = (*list)[statementIndex];
-
-         if(token.type != TokenType::Keyword || strcmp(keyword, token.text) != 0) {
-             return 0;
-	 }
-
-         statementIndex++;
-      } else if ( std::is_same_v<decltype(targetToken), TokenType>) {
-         TokenType targetType = get<TokenType>(targetToken);
-	 if(targetType != type) {
-            return 0;
-	 }
-	
-	 statementIndex++; 
-      } else {
-         
-         TokenNode node = get<TokenNode>(targetToken);
-         TokenMode mode = node.getMode();
-	 return 0;
-      }
-   }
-
-   return statementIndex;
+void verifyError(vector<Token> *tokens, int index, const char *text) {
+   cout << "Error Message: " << text;
+   verifyError(tokens, index);
 }
-
 
 void verifyError(vector<Token> *tokens, int index) {
-   int lineCount = 0;
+   int lineCount = 1;
    int tokenIndex = 0;
 
    for(int i = 0; i < index; i++) {
@@ -640,6 +654,10 @@ TokenResult verifyVariant(variant<TokenNode, TokenType, const char*> *variantObj
 }
 
 TokenResult verifyBranch(TokenNode *node, vector<Token> *tokens, int index) {
+   if(node->getList()->size() == 0) {
+      
+   }
+	
    if(node->getMode() == TokenMode::ONCE) {
       return verifyOnce(node, tokens, index);
    } else if(node->getMode() == TokenMode::ONCE_OR_NONE) {
@@ -788,6 +806,23 @@ void writeFile(const char *src, const char *filename) {
       exit(-1);
    }
    cout << "TODO: Writing to file" << endl;
+}
+
+int hextoint(char *text, int offset, int length) {
+   int result = 0;
+   int exp = 0;
+   for(int i = length - 1 + offset; i >= offset; i--) {
+      char c = text[i];
+      if(!isAlphabetic(c) && !isNumeric(c)) {
+         return -1;
+      }
+      int v = isAlphabetic(c) ? (isUpper(c) ? (int) (c - 'A') + 10 : (int) (c - 'a') + 10) : (int) (c - '0');
+      int pw = (int) pow(16, exp);
+      result += pw * v;
+      exp++;
+   }
+
+   return result;
 }
 
 bool isAlphabetic(char c) {

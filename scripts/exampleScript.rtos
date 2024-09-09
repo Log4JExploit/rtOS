@@ -5,3 +5,5 @@ function myfunction(input: int):
 done
 
 invoke ::myfunction(4)
+invoke system::print("My Paragraph §:\n \u00A7 <- paragraph")
+
