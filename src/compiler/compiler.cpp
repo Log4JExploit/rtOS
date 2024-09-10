@@ -229,7 +229,7 @@ int byEscapedCharacter(char c);
 
 void initStatements();
 void verify(vector<Token> *tokens);
-void verifyContext(ContextContainer *context, vector<Token> *list, int *index);
+void verifyContext(ContextContainer *context, vector<Token> *list, int index);
 int verifyStatement(TokenNode *node, vector<Token> *list, int index);
 void verifyError(vector<Token> *tokens, int index);
 void verifyError(vector<Token> *tokens, int index, const char *text);
@@ -557,12 +557,13 @@ void verify(vector<Token> *tokens) {
   verifyContext(&global, tokens, &index);
 }
 
-void verifyContext(ContextContainer *context, vector<Token> *list, int *index) {
+void verifyContext(ContextContainer *context, vector<Token> *list, int index) {
    bool terminated = false;
    while(!terminated) {
+      if((*list)[]
       for(TokenNode& node : *ast) {
          TokenResult result = verifyEachVariant(&node, list, *index);
-
+         
       }
    }
 }
@@ -616,7 +617,7 @@ TokenResult verifyEachVariant(TokenNode *node, vector<Token> *tokens, int index)
       }
 
       if(subResult.getNode() == nullptr) {
-         vector<variant<TokenResult, Token>> *tokens = subResult.getTokens();
+         vector<variant<TokenResult, Token, ContextContainer>> *tokens = subResult.getTokens();
          result.add((*tokens)[0]);        
       } else {
 	 result.add(subResult);
@@ -655,6 +656,9 @@ TokenResult verifyVariant(variant<TokenNode, TokenType, const char*> *variantObj
 
 TokenResult verifyBranch(TokenNode *node, vector<Token> *tokens, int index) {
    if(node->getList()->size() == 0) {
+      ContextContainer *container = reinterpret_cast<ContextContainer*>(malloc(sizeof(ContextContainer)));
+      *container = ContextContainer(node);
+      verifyContext(&container, tokens, index);
       
    }
 	
