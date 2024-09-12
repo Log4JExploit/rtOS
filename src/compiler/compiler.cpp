@@ -95,29 +95,6 @@ private:
    vector<variant<TokenNode, TokenType, const char*>> list;
 };
 
-class ContextContainer {
-   public:
-      ContextContainer(TokenNode *statement) {
-         this->statement = statement;
-	 this->elements = vector<variant<ContextContainer, TokenNode>*>();
-      }
-
-      void add(variant<ContextContainer, TokenNode> *element) {
-         this->elements.push_back(element);
-      }
-
-      TokenNode getStatement() {
-         return *(this->statement);
-      }
-      
-      void setName(char *name) {
-         this->name = name;
-      }
-   private:
-      TokenNode *statement;
-      vector<variant<ContextContainer, TokenNode>*> elements;
-      char *name;
-};
 
 class TokenResult {
    public:
@@ -141,12 +118,10 @@ class TokenResult {
 
       int getTokenCount() {
          int count = 0;
-	 for(variant<TokenResult, Token, ContextContainer> v : this->tokens) {
+	 for(variant<TokenResult, Token> v : this->tokens) {
             if(is_same_v<decltype(v), TokenResult>) {
                TokenResult result = get<TokenResult>(v);
 	       count += result.getTokenCount();
-	    } else if(is_same_v<decltype(v), ContextContainer>) {
-	       
 	    } else {
                count++;
 	    }  
@@ -154,18 +129,24 @@ class TokenResult {
 	 return count;
       }
 
-      vector<variant<TokenResult, Token, ContextContainer>>* getTokens() {
+      vector<variant<TokenResult, Token>*>* getTokens() {
          return &(this->tokens);
       }
 
-      void add(variant<TokenResult, Token, ContextContainer> element) {
+      void add(variant<TokenResult, Token> *element) {
          this->tokens.push_back(element);
       }
 
+      TokenResult* persist() {
+	 TokenResult *storage = reinterpret_cast<TokenResult*>(malloc(sizeof(TokenResult)));
+      	 *storage = *this;
+	 return storage;
+      }
+   
    private:
       TokenNode *node;
       bool satisfied;
-      vector<variant<TokenResult, Token, ContextContainer>> tokens;
+      vector<variant<TokenResult, Token>*> tokens;
 };
 
 enum class BasicType {
@@ -229,8 +210,7 @@ int byEscapedCharacter(char c);
 
 void initStatements();
 void verify(vector<Token> *tokens);
-void verifyContext(ContextContainer *context, vector<Token> *list, int index);
-int verifyStatement(TokenNode *node, vector<Token> *list, int index);
+void verifyContext(TokenNode *node, vector<Token> *list, int index);
 void verifyError(vector<Token> *tokens, int index);
 void verifyError(vector<Token> *tokens, int index, const char *text);
 TokenResult verifyEachVariant(TokenNode *node, vector<Token> *tokens, int index);
@@ -551,19 +531,39 @@ Token nextKeywordToken(char *text, int length) {
 /* verify */
 
 void verify(vector<Token> *tokens) {
-  ContextContainer global(nullptr);
   int index = 0; 
-
-  verifyContext(&global, tokens, &index);
+  TokenResult result = verifyContext(&global, tokens, index);
 }
 
-void verifyContext(ContextContainer *context, vector<Token> *list, int index) {
+TokenResult verifyContext(TokenNode *node, vector<Token> *list, int index) {
+   TokenResult result(node, false);
    bool terminated = false;
+   
    while(!terminated) {
-      if((*list)[]
+      if(verifyVariant("done", list, index).isSatisfied()) {
+	 return;
+      }
+      
+      bool success = false;
+      TokenResult max(nullptr, false);
+
       for(TokenNode& node : *ast) {
          TokenResult result = verifyEachVariant(&node, list, *index);
-         
+         if(!result.isSatisfied() {
+	    if(result.getTokenCount() > max.getTokenCount()) {
+	       max = result;
+	    }   
+	 } else {
+	    success = true;
+	    max = result;
+	 }
+      }
+
+      if(success) {
+      	 TokenResult *storage = reinterpret_cast<TokenResult*>(malloc(sizeof(TokenResult)));
+	 context->add(storage);
+      } else {
+
       }
    }
 }
