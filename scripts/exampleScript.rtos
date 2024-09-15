@@ -1,7 +1,12 @@
 #<rtos>
 
-function myfunction(input: int):
-   invoke system::print(input)
+create x: int
+create imabool: bool
+create onlyname
+
+function myfunction(input: int): void
+   create x: void
+   invoke system::print(input + "My text" + util::freeRam(2 + 3, 9))
 done
 
 invoke ::myfunction(4)

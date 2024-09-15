@@ -6,10 +6,14 @@
 #include <cstring>
 #include <variant>
 #include <initializer_list>
+#include <algorithm>
 
 using namespace std;
 
+/* Structs */
+
 enum class TokenType {
+   BaseType,
    Keyword,
    Identifier,
    Number,
@@ -42,6 +46,7 @@ enum class TokenType {
    And,
    Or,
    Equals,
+   Not,
 
    Separator,
    NewLine, 
@@ -57,10 +62,6 @@ enum class TokenMode {
    BRANCH
 };
 
-const char *keywords[] = {
-                  "create", "store", "for", "delete", "if", "calc", "inc", "dec", "exit", "done",
-                  "up", "down", "below", "above", "not", "invoke", "function", "void", nullptr
-};
 
 struct Token {
    TokenType type;
@@ -68,17 +69,46 @@ struct Token {
    int length;
 };
 
+/* Keywords */
+
+vector<const char*> keywords {
+                  "create", "store", "for", "delete", "if", "calc", "inc", "dec", "exit", "done",
+                  "up", "down", "below", "above", "not", "invoke", "function" 
+};
+
+vector<const char*> basetypes {
+		  "bool", "byte", "char", "short", "int", "float", "double", "long", "string", "void"
+};
+
+/* Util Functions */
+
+int arrayFind(vector<const char*> *vec, char* text, int length);
+char* charcpy(const char *src, int length);
+std::string readFile(const char *file);
+void writeFile(const char *src, const char *file);
+int hextoint(char *text, int offset, int length);
+
+/* Classes */
+
 class TokenNode {
 public:
-   TokenNode(initializer_list<variant<TokenNode, TokenType, const char*>> nodes, TokenMode mode = TokenMode::ONCE) {
-      for (const variant<TokenNode, TokenType, const char*>& node : nodes) {
-            list.push_back(node);
-        }
+   TokenNode(initializer_list<variant<TokenNode*, TokenType, const char*>> nodes, TokenMode mode = TokenMode::ONCE) {
+      this->list = new vector<variant<TokenNode*, TokenType, const char*>>();
+      for (const variant<TokenNode*, TokenType, const char*>& node : nodes) {
+            this->list->push_back(node);
+      }
       this->mode = mode;
+      this->name = charcpy("", 0);
    }
 
-   vector<variant<TokenNode, TokenType, const char*>>* getList() {
-      return &(this->list);
+   TokenNode(vector<variant<TokenNode*, TokenType, const char*>> *nodes, TokenMode mode = TokenMode::ONCE) {
+      this->list = nodes;
+      this->mode = mode;
+      this->name = charcpy("", 0);
+   }
+
+   vector<variant<TokenNode*, TokenType, const char*>>* getList() {
+      return this->list;
    }
 
    void setMode(TokenMode mode) {
@@ -88,9 +118,24 @@ public:
    TokenMode getMode() {
       return this->mode;
    }
+
+   TokenNode* inMode(TokenMode mode) {
+      return (new TokenNode(this->list, mode))->withName(this->name);	
+   }
+
+   TokenNode* withName(const char* name) {
+      this->name = name;
+      return this;
+   }
+
+   const char* getName() {
+      return this->name;
+   }
+
 private:
+   const char* name;
    TokenMode mode;
-   vector<variant<TokenNode, TokenType, const char*>> list;
+   vector<variant<TokenNode*, TokenType, const char*>> *list;
 };
 
 
@@ -101,8 +146,8 @@ class TokenResult {
 	 this->satisfied = satisfied;
 	 this->tokens = {};
 
-	 this->message = reinterpret_cast<char*>(malloc(1));
-	 this->message[0] = '\0';
+	 this->message = "\0";
+	 this->skipped = 0;
       }
 
       bool isEmpty() {
@@ -124,14 +169,14 @@ class TokenResult {
       int getTokenCount() {
          int count = 0;
 	 for(variant<TokenResult*, Token>& v : this->tokens) {
-            if(is_same_v<decltype(v), TokenResult*>) {
+            if(holds_alternative<TokenResult*>(v)) {
                TokenResult *result = get<TokenResult*>(v);
 	       count += result->getTokenCount();
 	    } else {
                count++;
 	    }  
 	 }
-	 return count;
+	 return count + this->skipped;
       }
 
       vector<variant<TokenResult*, Token>>* getTokens() {
@@ -142,17 +187,39 @@ class TokenResult {
          this->tokens.push_back(element);
       }
    
-      void setMessage(char *message) {
+      void setMessage(const char *message) {
 	 this->message = message;
       }
 
-      char* getMessage() {
+      const char* getMessage() {
 	 return this->message;
       }
+
+      bool hasMessage() {
+	 return strlen(this->message) > 0;
+      }
+
+      void skip() {
+	 (this->skipped)++;
+      }
+
+      void incSkipped(int skipped) {
+	 this->skipped += skipped;
+      }
+
+      int getSkipped() {
+	 return this->skipped;
+      }
+
+      int getUnskipped() {
+	 return this->getTokenCount() - this->skipped;
+      }
+
    private:
-      char *message;
+      const char *message;
       TokenNode *node;
       bool satisfied;
+      int skipped;
       vector<variant<TokenResult*, Token>> tokens;
 };
 
@@ -218,24 +285,18 @@ int byEscapedCharacter(char c);
 
 void initStatements();
 void verify(vector<Token> *tokens);
-TokenResult verifyContext(TokenNode *node, vector<Token> *list, int index);
-TokenResult verifyEachVariant(TokenNode *node, vector<Token> *tokens, int index);
-TokenResult verifyVariant(variant<TokenNode, TokenType, const char*> *variant, vector<Token> *tokens, int index);
-TokenResult verifyBranch(TokenNode *node, vector<Token> *tokens, int index);
-TokenResult verifyMoreOrNone(TokenNode *node, vector<Token> *tokens, int index);
-TokenResult verifyOnceOrMore(TokenNode *node, vector<Token> *tokens, int index);
-TokenResult verifyOnceOrNone(TokenNode *node, vector<Token> *tokens, int index);
-TokenResult verifyOnce(TokenNode *node, vector<Token> *tokens, int index);
+TokenResult* verifyContext(TokenNode *node, vector<Token> *list, int index);
+TokenResult* verifyEachVariant(TokenNode *node, vector<Token> *tokens, int index);
+TokenResult* verifyVariant(variant<TokenNode*, TokenType, const char*> *variant, vector<Token> *tokens, int index);
+TokenResult* verifyNode(TokenNode *node, vector<Token> *tokens, int index);
+TokenResult* verifyBranch(TokenNode *node, vector<Token> *tokens, int index);
+TokenResult* verifyMoreOrNone(TokenNode *node, vector<Token> *tokens, int index);
+TokenResult* verifyOnceOrMore(TokenNode *node, vector<Token> *tokens, int index);
+TokenResult* verifyOnceOrNone(TokenNode *node, vector<Token> *tokens, int index);
+TokenResult* verifyOnce(TokenNode *node, vector<Token> *tokens, int index);
 void verifyError(vector<Token> *tokens, int index);
 void verifyError(vector<Token> *tokens, int index, const char *text);
 
-/* Util Functions */
-
-int arrayFind(const char *array[], char* text, int length);
-char* charcpy(const char *src, int length);
-std::string readFile(const char *file);
-void writeFile(const char *src, const char *file);
-int hextoint(char *text, int offset, int length);
 
 bool isAlphabetic(char character);
 bool isUpper(char character);
@@ -266,7 +327,11 @@ int main(int argsCount, char **args) {
       cout << "\"" << token.text << "\", ";
    }
    
-   verifyError(&tokens, 6, "Test error!");
+   //verifyError(&tokens, 6, "Test error!");
+   
+   initStatements();
+   verify(&tokens);
+
    return 0;
 }
 
@@ -291,13 +356,10 @@ vector<Token> tokenize(char *text, int length) {
          evaluateToken(text, &index, &tokens, length, &last);
       }
    }
-   
-   char *term = reinterpret_cast<char*>(malloc(1));
-   *term = '\0';
 
    Token endToken;
-   endToken.type = TokenType::EoF;
-   endToken.text = term;
+   endToken.type = TokenType::Keyword;
+   endToken.text = charcpy("done", 4);
    tokens.push_back(endToken);
 
    return tokens;
@@ -488,7 +550,8 @@ Token nextSpecialToken(char *text, int length) {
       case '&': token.type = TokenType::And; break;
       case '|': token.type = TokenType::Or; break;
       case '=': token.type = TokenType::Equals; break;
-      
+      case '!': token.type = TokenType::Not; break;
+
       case '\n': token.type = TokenType::NewLine; break;
 
       default:
@@ -523,60 +586,383 @@ Token nextIdentifierToken(char *text, int length) {
 }
 
 Token nextKeywordToken(char *text, int length) {
-   int keywordLength = arrayFind(keywords, text, length);
+   cout << "TEXT SEARCH: " << text << endl;
+   
+   int basetypeLength = arrayFind(&basetypes, text, length);
+   int keywordLength = arrayFind(&keywords, text, length);
 
-   if(keywordLength < 1) {
+   if(keywordLength + basetypeLength < 1) {
+      cout << "TEXT NOT FOUND: " << text << endl;
       return nextIdentifierToken(text, length);
    }
 
    Token token;
-   token.text = charcpy(text, keywordLength);
-   token.type = TokenType::Keyword;
-   token.length = keywordLength;
+   token.type = basetypeLength == 0 ? TokenType::Keyword : TokenType::BaseType;
+   token.length = keywordLength + basetypeLength;
+   token.text = charcpy(text, token.length);
    return token;
 }
 
 /* verify */
 
 void verify(vector<Token> *tokens) {
-  int index = 0; 
-  TokenResult result = verifyContext(contextNode, tokens, index);
+   cout << "verify: " << endl;
+   TokenResult *result = verifyContext(contextNode, tokens, 0);
+   cout << "Parsing success: " << result->isSatisfied() << endl;
 }
 
-TokenResult verifyContext(TokenNode *node, vector<Token> *list, int index) {
+TokenResult* verifyContext(TokenNode *node, vector<Token> *list, int index) {
+   cout << "verifyContext: " << endl;
    TokenResult *result = new TokenResult(node, true);
-   variant<TokenNode, TokenType, const char*> terminator = "done";
+   variant<TokenNode*, TokenType, const char*> terminator = "done";
    bool terminated = false;
    
    do {
-      if(verifyVariant(&terminator, list, index).isSatisfied()) {
+      if(verifyVariant(&terminator, list, index + result->getTokenCount())->isSatisfied()) {
 	 terminated = true;
 	 continue;
       }
       
+      cout << "1" << endl; 
       bool success = false;
       TokenResult *max = new TokenResult(nullptr, false);
-
+      cout << "2" << endl;
       for(TokenNode& node : *ast) {
-         TokenResult subResult = verifyEachVariant(&node, list, index);
-         if(!subResult.isSatisfied()) {
-	    if(subResult.getTokenCount() > max->getTokenCount()) {
-	       *max = subResult;
+	 cout << "Trying to detect statement" << endl;
+         TokenResult *subResult = verifyEachVariant(&node, list, index + result->getTokenCount());
+         if(!subResult->isSatisfied()) {
+	    if(subResult->getUnskipped() > max->getUnskipped()) {
+	       max = subResult;
+	       cout << "FAIL: UPDATED MAX: " << max->getUnskipped() << "TOKENS IN SUBRESULT" << endl;
+	    } else {
+               cout << "FAIL, BUT NOT UPDATING!" << subResult->getUnskipped()  << endl; 
 	    }   
 	 } else {
-	    success = true;
-	    *max = subResult;
+	    cout << "STATEMENT SUCCESS" << endl;
+            success = true;
+	    result->add(subResult);
+	    break;
 	 }
       }
 
-      if(success) {
-	 result->add(max);
-      } else {
-	 verifyError(list, index + max->getTokenCount(), "Invalid statement!");
+      if(!success) {
+	 cout << "THROWING CONTEXT ERROR" << endl << endl;
+	 verifyError(list, index + result->getTokenCount() + max->getTokenCount(), max->hasMessage() ? max->getMessage() : "Invalid statement!");
       }
    } while(!terminated);
 
-   return *result;
+   return result;
+}
+
+TokenResult* verifyEachVariant(TokenNode *node, vector<Token> *tokens, int index) {
+   cout << "verifyEachVariant: " << endl;
+   TokenResult *result = new TokenResult(node, true);
+
+   for(variant<TokenNode*, TokenType, const char*> variantObj : *(node->getList())) {
+      int localIndex = index + result->getTokenCount();
+      cout << "INDEX: " << index << ", LOCAL: " << localIndex << endl; 
+      TokenResult *subResult = verifyVariant(&variantObj, tokens, localIndex);
+      
+      cout << "SIZE: " << result->getTokens()->size() << " SKIPPED: " << subResult->getSkipped() << endl;
+      cout << "SATISFIED: " << result->isSatisfied() << endl;
+
+      if(!subResult->isSatisfied()) {
+	 cout << "RETURNING FAIL" << endl;
+	 result->add(subResult);
+	 result->setSatisfied(false);
+	 if(subResult->hasMessage()) {
+            result->setMessage(subResult->getMessage());
+         }
+	 return result;
+      }
+
+      cout << "Tokens available: " << result->getUnskipped()  << endl;
+      
+      if(subResult->getNode() == nullptr) {
+	 result->add(subResult->getTokens()->at(0));
+      	 result->incSkipped(subResult->getSkipped());
+      } else {
+         result->add(subResult);
+      }
+   }
+   return result;
+}
+
+TokenResult* verifyVariant(variant<TokenNode*, TokenType, const char*> *variantObj, vector<Token> *tokens, int index) {
+   cout << "verifyVariant: " << endl;
+   
+   TokenResult *result = new TokenResult(nullptr, true);
+   Token token = tokens->at(index);
+
+   if(holds_alternative<TokenNode*>(*variantObj)) {
+      delete result;
+      TokenNode *node = get<TokenNode*>(*variantObj);
+      return verifyNode(node, tokens, index);
+   } else {
+      while(token.type == TokenType::Separator || token.type == TokenType::NewLine) {
+	 result->skip();
+	 index++;
+	 token = tokens->at(index);
+      	 cout << "SKIP" << endl;
+      }
+
+      if(holds_alternative<const char*>(*variantObj)) {
+	  const char *keyword = get<const char*>(*variantObj);
+          
+	  bool stringsAreEqual = strcmp(keyword, token.text) == 0;
+	  if(token.type != TokenType::Keyword || !stringsAreEqual) {
+	     cout << "REAL TOKEN NOT OF CORRECT TYPE: " << (token.type != TokenType::Keyword ? "true" : "false") << endl;
+	     cout << "'" << token.text << "' IS NOT '" << keyword << "'" <<  endl;
+             if(!stringsAreEqual) {
+		string msg;
+		msg += "This is not the correct keyword, expected: ";
+		msg += keyword;
+                result->setMessage(msg.c_str());
+	     }
+	     result->setSatisfied(false);
+	  } else {
+             cout << "CORRECT TOKEN: " << token.text << endl;
+	  }
+
+	  cout << token.text << " ADDED TO RESULT" << endl;
+	  result->add(token);
+      } else if(holds_alternative<TokenType>(*variantObj)) {
+	 TokenType targetType = get<TokenType>(*variantObj);
+	 
+	 if(targetType != token.type) {
+	    cout << "'" << token.text << "' IS NOT CORRECT TOKENTYPE " << static_cast<int>(targetType) <<  endl;
+            string msg;
+	    msg += "This is not the correct token, expected type: ";
+	    msg += static_cast<int>(targetType);
+            result->setMessage(msg.c_str());
+	    result->setSatisfied(false);
+	 } else {
+            cout << "CORRECT TOKEN: " << token.text << endl;
+	 }
+	    
+	 cout << token.text << " ADDED TO RESULT" << endl;
+	 result->add(token);
+      }
+   }
+   return result;
+}
+
+TokenResult* verifyNode(TokenNode *node, vector<Token> *tokens, int index) {
+
+   if(strlen(node->getName()) > 0) {
+      cout << "ATTEMPT VERIFY OF: " << node->getName() << endl;
+   }
+
+   if(node->getList()->size() == 0) {
+      return verifyContext(node, tokens, index);
+   }
+	
+   if(node->getMode() == TokenMode::ONCE) {
+      cout << "MODE: ONCE" << endl; 
+      return verifyOnce(node, tokens, index);
+   } else if(node->getMode() == TokenMode::ONCE_OR_NONE) {
+      cout << "MODE: ONCE_OR_NONE" << endl; 
+      return verifyOnceOrNone(node, tokens, index);
+   } else if(node->getMode() == TokenMode::ONCE_OR_MORE) {
+      cout << "MODE: ONCE_OR_MORE" << endl; 
+      return verifyOnceOrMore(node, tokens, index);
+   } else if(node->getMode() == TokenMode::BRANCH) {
+      cout << "MODE: BRANCH" << endl;
+      return verifyBranch(node, tokens, index); 
+   } else {
+      cout << "MODE: MORE_OR_NONE" << endl; 
+      return verifyMoreOrNone(node, tokens, index);
+   }
+}
+
+TokenResult* verifyBranch(TokenNode *node, vector<Token> *tokens, int index) {
+   TokenResult *max = new TokenResult(nullptr, false);
+   for(variant<TokenNode*, TokenType, const char*> variantObj : *(node->getList())) {
+      TokenResult *branchResult = verifyVariant(&variantObj, tokens, index);
+      if(branchResult->isSatisfied()) {
+	 return branchResult;
+      } else if(branchResult->getTokenCount() > max->getTokenCount()) {
+	 max = branchResult;
+      }
+   }
+
+   if(max == nullptr) {
+      return new TokenResult(node, false);
+   } else {
+      return max;
+   }
+}
+
+TokenResult* verifyMoreOrNone(TokenNode *node, vector<Token> *tokens, int index) { 
+   TokenResult *result = verifyOnceOrMore(node, tokens, index);
+   result->setSatisfied(true);
+   return result;
+}
+
+TokenResult* verifyOnceOrMore(TokenNode *node, vector<Token> *tokens, int index) {
+   TokenResult *result = new TokenResult(node, true);
+   bool failed = false;
+    
+   do {
+      TokenResult *resultAny = verifyOnce(node, tokens, index + result->getTokenCount());
+      if(!resultAny->isSatisfied()) {
+      	 failed = true;
+      } else {
+	 result->add(resultAny);
+      }
+   } while(!failed);
+
+   result->setSatisfied(!result->isEmpty());
+   return result;
+}
+
+TokenResult* verifyOnceOrNone(TokenNode *node, vector<Token> *tokens, int index) {
+   TokenResult *result = verifyOnce(node, tokens, index);
+   if(!result->isSatisfied()) {
+      result->getTokens()->clear();
+   }
+   result->setSatisfied(true);
+   return result;
+}
+
+TokenResult* verifyOnce(TokenNode *node, vector<Token> *tokens, int index) {
+    return verifyEachVariant(node, tokens, index);
+}
+
+void initStatements() {
+   ast = new vector<TokenNode>();
+   contextNode = new TokenNode {};
+
+   // CREATE
+
+   TokenNode *basetypeAndIdent = new TokenNode {
+      TokenType::Identifier,
+      TokenType::BaseType
+   };
+
+   TokenNode *addonType = new TokenNode {
+      TokenType::Colon,
+      basetypeAndIdent->inMode(TokenMode::BRANCH)
+   };
+
+   TokenNode *statementCreate = new TokenNode {
+      "create",
+      TokenType::Identifier,
+      addonType->inMode(TokenMode::ONCE_OR_NONE)
+   };
+ 
+   // FUNCTION
+
+   TokenNode *parameterDeclaration = new TokenNode {
+      TokenType::Identifier,
+      addonType->inMode(TokenMode::ONCE)
+   };
+
+   TokenNode *addonFunctionParameter = new TokenNode {
+      TokenType::Comma,
+      parameterDeclaration
+   };
+
+   TokenNode *functionArgumentList = new TokenNode {
+      parameterDeclaration,
+      addonFunctionParameter->inMode(TokenMode::MORE_OR_NONE)
+   };
+   
+   TokenNode *statementFunction = new TokenNode {
+      "function",
+      TokenType::Identifier,
+      TokenType::BracketOpen,
+      functionArgumentList->inMode(TokenMode::ONCE_OR_NONE),
+      TokenType::BracketClose,
+      TokenType::Colon,
+      basetypeAndIdent->inMode(TokenMode::BRANCH),
+      contextNode
+   };
+
+   // VALUE
+
+   TokenNode *value = (new TokenNode {
+      TokenType::String,
+      TokenType::Number,
+      TokenType::BaseType,
+      TokenType::Identifier
+   })->withName("#value#");
+
+   TokenNode *connector = (new TokenNode {
+      TokenType::And,
+      TokenType::Or,
+      TokenType::Plus,
+      TokenType::Minus,
+      TokenType::Star,
+      TokenType::Slash
+   })->withName("#connector#");
+
+   TokenNode *notWrapper = new TokenNode {
+      TokenType::Not
+   };
+
+   TokenNode *wrapperValue = new TokenNode {
+      notWrapper->inMode(TokenMode::ONCE_OR_NONE),
+      value->inMode(TokenMode::BRANCH)
+   };
+
+   TokenNode *addonConnectingValues = new TokenNode {
+      connector->inMode(TokenMode::BRANCH),
+      wrapperValue
+   };
+
+   TokenNode *construct = (new TokenNode {
+      wrapperValue->inMode(TokenMode::ONCE),
+      addonConnectingValues->inMode(TokenMode::MORE_OR_NONE)
+   })->withName("#construct#");
+
+   TokenNode *enclosedConstruct = new TokenNode {
+      TokenType::BracketOpen,
+      construct,
+      TokenType::BracketClose
+   };
+
+   // INVOKE
+
+   TokenNode *domainIdentifier = (new TokenNode {
+      TokenType::Identifier
+   })->withName("#domainIdentifier#");
+
+   TokenNode *addonFunctionArgument = new TokenNode {
+      TokenType::Comma,
+      construct
+   };
+
+   TokenNode *functionArgument = new TokenNode {
+      construct,
+      addonFunctionArgument->inMode(TokenMode::MORE_OR_NONE)
+   };
+
+   TokenNode *functionCall = new TokenNode {
+      TokenType::Colon,
+      TokenType::Colon,
+      TokenType::Identifier,
+      TokenType::BracketOpen,
+      functionArgument->inMode(TokenMode::ONCE_OR_NONE),
+      TokenType::BracketClose
+   };
+
+   TokenNode *functionCallChain = (new TokenNode {
+      domainIdentifier->inMode(TokenMode::ONCE_OR_NONE),
+      functionCall->inMode(TokenMode::ONCE_OR_MORE)
+   })->withName("#functionCallChain#");
+   
+   TokenNode *statementInvoke = new TokenNode {
+      "invoke",
+      functionCallChain->inMode(TokenMode::ONCE)
+   };
+
+   value->getList()->insert(value->getList()->begin(), functionCallChain);
+   value->getList()->insert(value->getList()->begin(), enclosedConstruct);
+   
+   ast->push_back(*statementInvoke);
+   ast->push_back(*statementFunction);
+   ast->push_back(*statementCreate);
 }
 
 void verifyError(vector<Token> *tokens, int index, const char *text) {
@@ -591,23 +977,27 @@ void verifyError(vector<Token> *tokens, int index) {
    for(int i = 0; i < index; i++) {
       if((*tokens)[i].type == TokenType::NewLine) {
           lineCount++;
-	  tokenIndex = i;
+	  tokenIndex = i + 1;
       }
    }
    
    cerr << endl;
-   cerr << "Error, unexpected Token! Line " << lineCount << ": " << endl;
+   cerr << "Error is located in line " << lineCount << ": " << endl << endl;
    
-   int lineErrorIndex = 1;
+   int lineErrorIndex = 0;
 
-   for(int i = tokenIndex; i < index; i++) {
-      lineErrorIndex += (*tokens)[i].length;
+   for(int i = tokenIndex; i < tokens->size(); i++) {
+      if(tokens->at(i).type == TokenType::NewLine) {
+	 break;
+      }
+      if(i <= index) {
+         lineErrorIndex += (*tokens)[i].length;
+      }
       cerr << (*tokens)[i].text;
    }
    
-   cerr << (*tokens)[index].text;
    cerr << endl;
-   
+
    for(int i = 0; i < lineErrorIndex - 2; i++) {
       cerr << "-";
    }
@@ -616,175 +1006,33 @@ void verifyError(vector<Token> *tokens, int index) {
    exit(1);
 }
 
-TokenResult verifyEachVariant(TokenNode *node, vector<Token> *tokens, int index) {
-   TokenResult *result = new TokenResult(node, true);
-
-   for(variant<TokenNode, TokenType, const char*> variantObj : *(node->getList())) {
-      int localIndex = index + result->getTokenCount();
-      TokenResult subResult = verifyVariant(&variantObj, tokens, index);
-      
-      if(!subResult.isSatisfied()) {
-	 TokenResult *fail = new TokenResult(node, false);
-	 fail->add(&subResult);
-	 return *fail;
-      }
-
-      if(subResult.getNode() == nullptr) {
-	 result->add(subResult.getTokens()->at(0));
-      } else {
-         result->add(&subResult);
-      }
-   }
-   return *result;
-}
-
-TokenResult verifyVariant(variant<TokenNode, TokenType, const char*> *variantObj, vector<Token> *tokens, int index) {
-   TokenResult *result = new TokenResult(nullptr, true);
-   TokenResult *fail = new TokenResult(nullptr, false);
-   Token token = tokens->at(index);
-   
-   if (std::is_same_v<decltype(*variantObj), const char*>) {
-      const char *keyword = get<const char*>(*variantObj);
-      
-      if(token.type != TokenType::Keyword || strcmp(keyword, token.text) != 0) {
-         return *fail;
-      }
-
-      result->add(token);
-   } else if (std::is_same_v<decltype(variantObj), TokenType>) {
-      TokenType targetType = get<TokenType>(*variantObj);
-      
-      if(targetType != token.type) {
-         return *fail;
-      }
-	 
-      result->add(token);
-   } else {
-      delete result;
-      delete fail;
-      TokenNode node = get<TokenNode>(*variantObj);
-      return verifyBranch(&node, tokens, index);
-   }
-   return *result;
-}
-
-TokenResult verifyBranch(TokenNode *node, vector<Token> *tokens, int index) {
-   if(node->getList()->size() == 0) {
-      return verifyContext(node, tokens, index);
-   }
-	
-   if(node->getMode() == TokenMode::ONCE) {
-      return verifyOnce(node, tokens, index);
-   } else if(node->getMode() == TokenMode::ONCE_OR_NONE) {
-      return verifyOnceOrNone(node, tokens, index);
-   } else if(node->getMode() == TokenMode::ONCE_OR_MORE) {
-      return verifyOnceOrMore(node, tokens, index);
-   } else {
-      return verifyMoreOrNone(node, tokens, index);
-   }
-}
-
-TokenResult verifyMoreOrNone(TokenNode *node, vector<Token> *tokens, int index) { 
-   TokenResult result = verifyOnceOrMore(node, tokens, index);
-   if(result.isEmpty() && !result.isSatisfied()) {
-      result.setSatisfied(true);
-   }
-   return result;
-}
-
-TokenResult verifyOnceOrMore(TokenNode *node, vector<Token> *tokens, int index) {
-   TokenResult *result = new TokenResult(node, true);
-   bool failed = false;
-    
-   do {
-      TokenResult resultAny = verifyOnce(node, tokens, index + result->getTokenCount());
-      failed = !resultAny.isSatisfied() && resultAny.isSatisfied();
-      if(!failed) {
-         result->add(&resultAny);
-      }
-   } while(!failed);
-
-   result->setSatisfied(!result->isEmpty() && !failed);
-   return *result;
-}
-
-TokenResult verifyOnceOrNone(TokenNode *node, vector<Token> *tokens, int index) {
-   TokenResult result = verifyOnce(node, tokens, index);
-   if(result.isEmpty() && !result.isSatisfied()) {
-      result.setSatisfied(true);
-   }
-   return result;
-}
-
-TokenResult verifyOnce(TokenNode *node, vector<Token> *tokens, int index) {
-    return verifyEachVariant(node, tokens, index);
-}
-
-void initStatements() {
-   *ast = vector<TokenNode>();
-   *contextNode = TokenNode({});
-
-   TokenNode* typeDeclaration = new TokenNode({
-      TokenType::Identifier,
-      TokenType::Colon,
-      TokenType::Identifier
-   }, TokenMode::ONCE);
-
-   TokenNode* createWithType = new TokenNode({
-      "create",
-      TokenType::Identifier,
-      TokenNode({
-         TokenType::Colon,
-         TokenType::Identifier
-      }, TokenMode::ONCE_OR_NONE)
-   });
-   
-   TokenNode* function = new TokenNode({
-      "function",
-      TokenType::Identifier,
-      TokenType::BracketOpen,
- 
-      TokenNode({
-          *typeDeclaration,
-	  TokenNode({
-	     TokenType::Comma,
-	     *typeDeclaration,
-	  }, TokenMode::MORE_OR_NONE)
-      }, TokenMode::ONCE_OR_NONE),
-      
-      TokenType::BracketClose,
-      TokenType::Colon,
-      TokenType::Identifier,
-      contextNode
-   });
-
-   ast->push_back(*function);
-   ast->push_back(*createWithType);
-}
-
 /* util */
 
-int arrayFind(const char **array, char *text, int length) {
-   for(int i = 0; array[i] != nullptr; i++) {
-      const char *candidate = array[i];
-
+int arrayFind(vector<const char*> *vec, char *text, int length) {
+   for(const char*& candidate : *vec) {
+      //if(strcmp(candidate, text) == 0) {
+	// return length;
+      //}
       if(strlen(candidate) > length) {
          continue;
       }
 
       bool finished = false;
       int j = 0;
-      
+
       while(candidate[j] == text[j]) {
          if(text[j] == 0) {
 	    finished = true;
 	    break;
 	 }
-	 
+
          j++;
       }
-      
+
       if(finished || candidate[j] == 0) {
+	 if(isNumeric(text[j]) || isAlphabetic(text[j]) || text[j] == '$') {
+	    continue;
+	 }
          return j;
       }
    }  
