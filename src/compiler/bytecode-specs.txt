@@ -26,8 +26,33 @@ sequences can be defined as follows:
 ## Specifications ##
 
 Header:
-   Unique Sequence 
-   [txt rtos]           
+   Unique Sequence   Version   Constants            Functions
+   [txt rtos]        [4]       [S ConstantsTable]   [S FunctionTable]
 
 ConstantsTable:
-   
+   [4] [VCS Constant]
+
+Constant:
+   Id   Type   Constant Block size   Data
+   [8]  [1]    [4]                   [VLB]
+
+FunctionTable:
+   Function declaration count   Function declarations
+   [4]                          [VCS Function]
+
+
+Operations:
+   0x01: Create variable
+   0x02: Store  
+
+
+Store:
+
+Invoke:
+
+Create:
+
+While:
+
+If:
+
