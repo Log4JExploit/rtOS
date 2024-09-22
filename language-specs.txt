@@ -65,10 +65,8 @@ Exponent:
    ( Integer | Decimal ) ( e | E ) ( + | - ) Integer 
 
 Value:
-   Bool
-   Char
-   String
-   Number
+   BaseType
+   BaseType
    Lambda
 
 ValueList:
@@ -81,20 +79,20 @@ Instruction:
    For
    While
    If
-   Increment
-   Decrement
    Invoke
    Function
+   Increment
+   Decrement
    Exit
 
 Context: 
    { Instruction } done
 
 Create:
-   create Identifier [ : BasicType ] set to [ Value ]
+   create Identifier [ : BasicType ] [ set to Value ]
 
 Set:
-   set Identifier [ to ( Value | Identifier ) ]
+   set Identifier to ( Value | Identifier )
 
 Delete:
    delete Identifier
@@ -139,6 +137,9 @@ NumOrId:
 Logic:
    ( NumOrId ( LogicalCompare | Equals ) NumOrId ) { LogicalConnect LogicalConstruct }
 
+Exit:
+   exit 
+
 For:
    for until [ ( above | below ) ] ( Identifier | Number ) ( up | down ) ( Identifier | Number ) [ set Identifier ] : Context
 
@@ -166,4 +167,4 @@ Lambda:
 FunctionDeclaration:
    function Identifier Lambda
 
-//END
+### END ###

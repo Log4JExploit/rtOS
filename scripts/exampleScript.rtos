@@ -7,8 +7,10 @@ create onlyname
 function myfunction(input: int): void
    create x: int
    invoke system::print(input + "My text" + util::freeRam(2 + 3, 9))
-   set x to (x: int): 
-      delete input 
+   set x to (x: int): void
+      delete input
+      exit 0 
+      return input
    done
    for until 5 up 4 set count:
       if 5 < 6: delete count done

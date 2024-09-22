@@ -73,7 +73,7 @@ struct Token {
 
 vector<const char*> keywords {
                   "create", "set", "for", "delete", "if", "inc", "dec", "exit", "done",
-                  "up", "down", "below", "above", "invoke", "function", "while", "to", "until" 
+                  "up", "down", "below", "above", "invoke", "function", "while", "to", "until", "return" 
 };
 
 vector<const char*> basetypes {
@@ -98,13 +98,13 @@ public:
             this->list->push_back(node);
       }
       this->mode = mode;
-      this->name = charcpy("", 0);
+      this->name = charcpy("no name", 7);
    }
 
    TokenNode(vector<variant<TokenNode*, TokenType, const char*>> *nodes, TokenMode mode = TokenMode::ONCE) {
       this->list = nodes;
       this->mode = mode;
-      this->name = charcpy("", 0);
+      this->name = charcpy("no name", 7);
    }
 
    vector<variant<TokenNode*, TokenType, const char*>>* getList() {
@@ -146,7 +146,7 @@ class TokenResult {
 	 this->satisfied = satisfied;
 	 this->tokens = {};
 
-	 this->message = "\0";
+	 this->message = charcpy("", 0);
 	 this->skipped = 0;
       }
 
@@ -187,11 +187,11 @@ class TokenResult {
          this->tokens.push_back(element);
       }
    
-      void setMessage(const char *message) {
+      void setMessage(char *message) {
 	 this->message = message;
       }
 
-      const char* getMessage() {
+      char* getMessage() {
 	 return this->message;
       }
 
@@ -216,7 +216,7 @@ class TokenResult {
       }
 
    private:
-      const char *message;
+      char *message;
       TokenNode *node;
       bool satisfied;
       int skipped;
@@ -266,7 +266,7 @@ int constantsCounter;
 
 /* Functions */
 
-// TOKENIZER
+// TOKENIZER (LEVEL 1)
 
 vector<Token> tokenize(char *text, int length);
 
@@ -281,7 +281,7 @@ void evaluateString(char* text, int *index, vector<Token> *tokens, int length);
 char* evaluateUnicode(char* text, int *index, vector<Token> *tokens,  int length);
 int byEscapedCharacter(char c);
 
-// PARSER
+// PARSER (LEVEL 2)
 
 void initStatements();
 void verify(vector<Token> *tokens);
@@ -297,6 +297,15 @@ TokenResult* verifyOnce(TokenNode *node, vector<Token> *tokens, int index);
 void verifyError(vector<Token> *tokens, int index);
 void verifyError(vector<Token> *tokens, int index, const char *text);
 
+// VALIDATOR (LEVEL 3)
+
+void validate(TokenResult *context);
+void validateCreate();
+
+// TRANSLATE
+
+
+// UTIL
 
 bool isAlphabetic(char character);
 bool isUpper(char character);
@@ -717,7 +726,7 @@ TokenResult* verifyVariant(variant<TokenNode*, TokenType, const char*> *variantO
 		string msg;
 		msg += "This is not the correct keyword, expected: ";
 		msg += keyword;
-                result->setMessage(msg.c_str());
+                result->setMessage(charcpy(msg.c_str(), msg.length()));
 	     }
 	     result->setSatisfied(false);
 	  } else {
@@ -734,7 +743,7 @@ TokenResult* verifyVariant(variant<TokenNode*, TokenType, const char*> *variantO
             string msg;
 	    msg += "This is not the correct token, expected type: ";
 	    msg += static_cast<int>(targetType);
-            result->setMessage(msg.c_str());
+            result->setMessage(charcpy(msg.c_str(), msg.length()));
 	    result->setSatisfied(false);
 	 } else {
             cout << "CORRECT TOKEN: " << token.text << endl;
@@ -862,14 +871,14 @@ void initStatements() {
       addonFunctionParameter->inMode(TokenMode::MORE_OR_NONE)
    };
 
-   TokenNode *lambda = new TokenNode {
+   TokenNode *lambda = (new TokenNode {
       TokenType::BracketOpen,
       functionArgumentList->inMode(TokenMode::ONCE_OR_NONE),
       TokenType::BracketClose,
       TokenType::Colon,
       basetypeAndIdent->inMode(TokenMode::BRANCH),
       contextNode
-   };
+   })->withName("#lamda#");
    
    TokenNode *function_ = new TokenNode {
       "function",
@@ -997,10 +1006,8 @@ void initStatements() {
    TokenNode *set_ = new TokenNode {
       "set",
       TokenType::Identifier,
-      (new TokenNode {
-         "to",
-         construct
-      })->inMode(TokenMode::ONCE_OR_NONE)
+      "to",
+      construct
    };
 
    // CREATE
@@ -1050,6 +1057,44 @@ void initStatements() {
       contextNode
    };
 
+   // INC(REMENT)
+   
+   TokenNode *inc_ = new TokenNode {
+      (new TokenNode {
+         "inc", "increment"
+      })->inMode(TokenMode::BRANCH),
+      TokenType::Identifier
+   };
+
+   // DEC(REMENT)
+   
+   TokenNode *dec_ = new TokenNode {
+      (new TokenNode {
+         "dec", "decrement"
+      })->inMode(TokenMode::BRANCH),
+      TokenType::Identifier
+   };
+
+   // EXIT
+
+   TokenNode *exit_ = new TokenNode {
+      "exit",
+      (new TokenNode { 
+         TokenType::Number 
+      })->inMode(TokenMode::ONCE_OR_NONE)
+   };
+
+   // RETURN
+   
+   TokenNode *return_ = new TokenNode {
+      "return",
+      construct
+   };
+
+   ast->push_back(*return_);
+   ast->push_back(*exit_);
+   ast->push_back(*dec_);
+   ast->push_back(*inc_);
    ast->push_back(*for_);
    ast->push_back(*delete_);
    ast->push_back(*create_);
