@@ -5,8 +5,14 @@ create imabool: bool
 create onlyname
 
 function myfunction(input: int): void
-   create x: void
+   create x: int
    invoke system::print(input + "My text" + util::freeRam(2 + 3, 9))
+   set x to (x: int): 
+      delete input 
+   done
+   for until 5 up 4 set count:
+      if 5 < 6: delete count done
+   done
 done
 
 invoke ::myfunction(4)

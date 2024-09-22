@@ -72,8 +72,8 @@ struct Token {
 /* Keywords */
 
 vector<const char*> keywords {
-                  "create", "store", "for", "delete", "if", "calc", "inc", "dec", "exit", "done",
-                  "up", "down", "below", "above", "not", "invoke", "function" 
+                  "create", "set", "for", "delete", "if", "inc", "dec", "exit", "done",
+                  "up", "down", "below", "above", "invoke", "function", "while", "to", "until" 
 };
 
 vector<const char*> basetypes {
@@ -833,7 +833,7 @@ void initStatements() {
    ast = new vector<TokenNode>();
    contextNode = new TokenNode {};
 
-   // CREATE
+   // ADDON OF TYPE
 
    TokenNode *basetypeAndIdent = new TokenNode {
       TokenType::Identifier,
@@ -843,12 +843,6 @@ void initStatements() {
    TokenNode *addonType = new TokenNode {
       TokenType::Colon,
       basetypeAndIdent->inMode(TokenMode::BRANCH)
-   };
-
-   TokenNode *statementCreate = new TokenNode {
-      "create",
-      TokenType::Identifier,
-      addonType->inMode(TokenMode::ONCE_OR_NONE)
    };
  
    // FUNCTION
@@ -867,16 +861,20 @@ void initStatements() {
       parameterDeclaration,
       addonFunctionParameter->inMode(TokenMode::MORE_OR_NONE)
    };
-   
-   TokenNode *statementFunction = new TokenNode {
-      "function",
-      TokenType::Identifier,
+
+   TokenNode *lambda = new TokenNode {
       TokenType::BracketOpen,
       functionArgumentList->inMode(TokenMode::ONCE_OR_NONE),
       TokenType::BracketClose,
       TokenType::Colon,
       basetypeAndIdent->inMode(TokenMode::BRANCH),
       contextNode
+   };
+   
+   TokenNode *function_ = new TokenNode {
+      "function",
+      TokenType::Identifier,
+      lambda
    };
 
    // VALUE
@@ -885,7 +883,8 @@ void initStatements() {
       TokenType::String,
       TokenType::Number,
       TokenType::BaseType,
-      TokenType::Identifier
+      TokenType::Identifier,
+      lambda
    })->withName("#value#");
 
    TokenNode *connector = (new TokenNode {
@@ -952,17 +951,113 @@ void initStatements() {
       functionCall->inMode(TokenMode::ONCE_OR_MORE)
    })->withName("#functionCallChain#");
    
-   TokenNode *statementInvoke = new TokenNode {
+   TokenNode *invoke_ = new TokenNode {
       "invoke",
       functionCallChain->inMode(TokenMode::ONCE)
    };
 
    value->getList()->insert(value->getList()->begin(), functionCallChain);
    value->getList()->insert(value->getList()->begin(), enclosedConstruct);
+
+   // IF (ELSE)
+
+   TokenNode *else_ = new TokenNode {
+      "else",
+      contextNode
+   };
+
+   TokenNode *if_ = new TokenNode {
+      "if",
+      construct->inMode(TokenMode::ONCE),
+      TokenType::Colon,
+      contextNode
+   };
+
+   TokenNode *elseIf = new TokenNode {
+      "else",
+      (new TokenNode {
+         if_,
+	 contextNode
+      })->inMode(TokenMode::BRANCH)
+   };
+
+   if_->getList()->insert(if_->getList()->end(), elseIf->inMode(TokenMode::MORE_OR_NONE));
+
+   // WHILE
    
-   ast->push_back(*statementInvoke);
-   ast->push_back(*statementFunction);
-   ast->push_back(*statementCreate);
+   TokenNode *while_ = new TokenNode {
+      "while",
+      construct,
+      TokenType::Colon,
+      contextNode
+   };
+
+   // SET
+
+   TokenNode *set_ = new TokenNode {
+      "set",
+      TokenType::Identifier,
+      (new TokenNode {
+         "to",
+         construct
+      })->inMode(TokenMode::ONCE_OR_NONE)
+   };
+
+   // CREATE
+
+   TokenNode *addonValueAssign = new TokenNode {
+      "set",
+      "to",
+      construct
+   };
+
+   TokenNode *create_ = new TokenNode {
+      "create",
+      TokenType::Identifier,
+      addonType->inMode(TokenMode::ONCE_OR_NONE),
+      addonValueAssign->inMode(TokenMode::ONCE_OR_NONE)
+   };
+
+   // DELETE
+
+   TokenNode *delete_ = new TokenNode {
+      "delete",
+      TokenType::Identifier
+   };
+
+   // FOR
+
+   TokenNode *addonNumberOrId = new TokenNode {
+         (new TokenNode { TokenType::Identifier, TokenType::Number })->inMode(TokenMode::BRANCH)
+   };
+
+   TokenNode *for_ = new TokenNode {
+      "for",
+      "until",
+      (new TokenNode {
+         (new TokenNode { "above", "below" })->inMode(TokenMode::BRANCH)
+      })->inMode(TokenMode::ONCE_OR_NONE),
+      addonNumberOrId,
+      (new TokenNode {
+         (new TokenNode { "up", "down" })->inMode(TokenMode::BRANCH)
+      })->inMode(TokenMode::ONCE_OR_NONE),
+      addonNumberOrId,
+      (new TokenNode { 
+         "set",
+         TokenType::Identifier,
+      })->inMode(TokenMode::ONCE_OR_NONE),
+      TokenType::Colon,
+      contextNode
+   };
+
+   ast->push_back(*for_);
+   ast->push_back(*delete_);
+   ast->push_back(*create_);
+   ast->push_back(*set_);
+   ast->push_back(*while_);
+   ast->push_back(*if_);
+   ast->push_back(*invoke_);
+   ast->push_back(*function_);
 }
 
 void verifyError(vector<Token> *tokens, int index, const char *text) {

@@ -69,33 +69,32 @@ Value:
    Char
    String
    Number
+   Lambda
 
 ValueList:
    [ Value { , Value } ]
 
 Instruction:
    Create
-   Store
+   Set
    Delete
-   Calc
    For
-   ForComplex
+   While
    If
    Increment
    Decrement
+   Invoke
+   Function
    Exit
 
 Context: 
    { Instruction } done
 
 Create:
-   create Identifier [ : BasicType ]
+   create Identifier [ : BasicType ] set to [ Value ]
 
-Store:
-   store ( Value | Identifier ) Identifier
-
-StoreLast:
-   store Identifier
+Set:
+   set Identifier [ to ( Value | Identifier ) ]
 
 Delete:
    delete Identifier
@@ -111,7 +110,7 @@ LogicalConnect:
    &&
 
 LogicalNegate:
-   
+   !
 
 LogicalCompare:
    <
@@ -123,7 +122,10 @@ Equals:
    ==
 
 Operator:
-   ( * | / | + | - )
+   *
+   /
+   +
+   -
 
 Operand:
    ( Identifier | Value )
@@ -131,35 +133,37 @@ Operand:
 Calculation:
    ( Operand | ( Calc ) ) Operator ( Operand | ( Calc ) ) { Operator ( Operand | ( Calc ) ) }
 
-Calc:
-   calc Calculation
-
 NumOrId:
    [ not ] ( Number | Identifier )
 
-LogicContruct:
+Logic:
    ( NumOrId ( LogicalCompare | Equals ) NumOrId ) { LogicalConnect LogicalConstruct }
 
-Logical:
-   logic LogicConstruct
-
 For:
-   for ( Identifier | Number ) : Context
-
-ForComplex:
-   for ( up | down ) ( Identifier | Number ) until ( ( below | over ) Number | ( Identifier | Number | Invoke | Logical ) ) : Context done
+   for until [ ( above | below ) ] ( Identifier | Number ) ( up | down ) ( Identifier | Number ) [ set Identifier ] : Context
 
 While:
    while ( Logical | Invoke ) : Context
 
+IfCondition:
+  ( FunctionReference | Identifier | Bool | Logical )
+
 Else:
-   else : Context
+   else [ if IfCondition ] Context
 
 If: 
-   if ( FunctionReference | Identifier | Bool | Logical ) : Context ( else If | Else )
+   if ( FunctionReference | Identifier | Bool | Logical ) : Context
 
-FunctionReference:
-   invoke [ Identifier ] :: Identifier ( ValueList ) 
+FunctionReference: 
+   [ Identifier ] :: Identifier ( ValueList ) 
+
+Invoke:
+   invoke FunctionReference
+
+Lambda:
+   ( [ Identifier : BasicType { , Identifier : BasicType } ] ) : Context
 
 FunctionDeclaration:
-   function Identifier ( [ Identifier : BasicType { , Identifier : BasicType } ] ) : Context
+   function Identifier Lambda
+
+//END
