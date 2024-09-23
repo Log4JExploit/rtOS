@@ -223,6 +223,30 @@ class TokenResult {
       vector<variant<TokenResult*, Token>> tokens;
 };
 
+enum class PointerType {
+   STACK,
+   STACK_TOP,
+   STACK_VALUE,
+   CONSTANT,
+   FUNCTION,
+   MEMORY
+};
+
+enum class StatementType {
+   
+}
+
+class Statement {
+   public:
+      Statement() {
+         
+      }
+
+
+   private:
+
+};
+
 enum class BasicType {
    Bool,
    Byte,
@@ -300,7 +324,10 @@ void verifyError(vector<Token> *tokens, int index, const char *text);
 // VALIDATOR (LEVEL 3)
 
 void validate(TokenResult *context);
+void validateFunctions(TokenResult *context);
+void validateVariables(TokenResult *context);
 void validateCreate();
+
 
 // TRANSLATE
 
