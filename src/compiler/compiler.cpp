@@ -77,7 +77,7 @@ vector<const char*> keywords {
 };
 
 vector<const char*> basetypes {
-		  "bool", "byte", "char", "short", "int", "float", "double", "long", "string", "void"
+		  "bool", "byte", "char", "short", "int", "float", "double", "long", "void"
 };
 
 /* Util Functions */
@@ -232,21 +232,6 @@ enum class PointerType {
    MEMORY
 };
 
-enum class StatementType {
-   
-}
-
-class Statement {
-   public:
-      Statement() {
-         
-      }
-
-
-   private:
-
-};
-
 enum class BasicType {
    Bool,
    Byte,
@@ -256,15 +241,16 @@ enum class BasicType {
    Float,
    Double,
    Long,
-   String
 };
 
 struct Variable {
+   PointerType pointerType;
    BasicType type;
-   int sizeInBytes;
-   char *data;
-   int id;
-   bool readOnly;
+   bool array;
+   int length;
+   
+   long value;
+   char *identifier;
 };
 
 struct Parameter {
@@ -277,6 +263,28 @@ struct Function {
    int parameterCount;
    char *name;
 };
+
+
+class Statement {
+   public:
+      Statement(const char *name) {
+         this->name = name;
+      }
+
+
+   private:
+      const char *name;
+};
+
+class SCreate : public Statement {
+   public: 
+      SCreate() : Statement("StatementCreate") {
+         
+      }
+   //private:
+      
+};
+
 
 Token endOfFileToken;
 vector<TokenNode> *ast;

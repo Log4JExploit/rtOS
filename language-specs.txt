@@ -31,7 +31,6 @@ BaseType:
    float
    double
    long
-   string
 
 Bool:
    ( true | false )
