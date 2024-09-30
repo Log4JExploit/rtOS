@@ -6,7 +6,6 @@
 #include <cstring>
 #include <variant>
 #include <initializer_list>
-#include <algorithm>
 
 using namespace std;
 
@@ -77,7 +76,7 @@ vector<const char*> keywords {
 };
 
 vector<const char*> basetypes {
-		  "bool", "byte", "char", "short", "int", "float", "double", "long", "void"
+		  "bool", "byte", "char", "short", "int", "float", "double", "long", "array", "void"
 };
 
 /* Util Functions */
@@ -243,46 +242,261 @@ enum class BasicType {
    Long,
 };
 
+enum class Operator {
+   Add,
+   Sub,
+   Mul,
+   Div,
+   And,
+   Or,
+   Not,
+   Equal,
+   Greater,
+   Smaller
+};
+
+class Type {
+   public:
+      Type(variant<BasicType, const char*> type) {
+         this->type = type;
+	 this->genericTypes = new vector<Type*>();
+      }
+
+      variant<BasicType, const char*> getBasicType() {
+         return this->type;
+      }
+
+      bool hasGenericTypes() {
+         return this->genericTypes->size() >= 0;
+      }
+
+      void setGenericType(Type *type) {
+         this->genericTypes->push_back(type);
+      }
+
+      vector<Type*>* getGenericTypes() {
+         return this->genericTypes;
+      }
+
+   private:
+      variant<BasicType, const char*> type;
+      vector<Type*> *genericTypes;
+};
+
 struct Variable {
    PointerType pointerType;
-   BasicType type;
-   bool array;
-   int length;
+   Type type;
    
    long value;
    char *identifier;
 };
 
-struct Parameter {
-   BasicType type;
-   int id;
+enum class OperandType {
+   Invoke,
+   InvokeChain,
+   Primitive,
+   Identifier,
+   Block
 };
 
-struct Function {
-   Parameter *parameters;
-   int parameterCount;
-   char *name;
-};
-
-
-class Statement {
+class Value {
    public:
-      Statement(const char *name) {
-         this->name = name;
+      Value(OperandType type) {
+         this->operandType = type;
       }
 
+      OperandType getOperandType() {
+         return this->operandType;
+      }
+
+   private:
+      OperandType operandType;
+};
+
+class Resolveable {
+   public:
+      Resolveable(Value *first, Value *second, Operator op) {
+         this->first = first;
+	 this->second = second;
+	 this->op = op;
+      }
+
+      Operator getOperator() {
+	 return this->op;
+      } 
+
+      Value* getFirst() {
+	 return this->first;
+      }
+
+      Value* getSecond() {
+	 return this->second;
+      }
+   private:
+      Value *first;
+      Value *second;
+      Operator op;
+};
+
+class ValueBlock : public Value {
+   public:
+      ValueBlock() : Value(OperandType::Block) {
+         this->content = new vector<variant<Value*, Operator>>();
+      }
+
+      void addElement(variant<Value*, Operator> element) {
+	 this->content->push_back(element);
+      }
+
+      vector<variant<Value*, Operator>>* getContent() {
+	 return this->content;
+      }
+
+   private:
+      vector<variant<Value*, Operator>>* content;
+};
+
+class ValueIdentifier : public Value {
+   public:
+      ValueIdentifier(const char* name) : Value(OperandType::Identifier) {
+      	 this->name = name;   
+      } 
+
+      const char* getName() {
+         return this->name;
+      }
+
+      bool isSet() {
+	 return this->name != nullptr && strlen(this->name) > 0;
+      }
 
    private:
       const char *name;
 };
 
-class SCreate : public Statement {
-   public: 
-      SCreate() : Statement("StatementCreate") {
+class ValueInvoke : public Value {
+   public:
+      ValueInvoke(ValueIdentifier space, ValueIdentifier name)
+	      : Value(OperandType::Invoke), space(space), name(name) {
+	 this->parameters = new vector<Value*>();
+      }
+
+      void addParameter(Value *value) {
+         this->parameters->push_back(value);
+      }
+
+      ValueIdentifier getSpace() {
+	 return this->space;
+      }
+
+      ValueIdentifier getName() {
+	 return this->name;
+      }
+   private:
+      ValueIdentifier space;
+      ValueIdentifier name;
+      vector<Value*> *parameters;
+};
+
+class ValueInvokeChain : public Value {
+   public:
+      ValueInvokeChain() : Value(OperandType::InvokeChain) {
+         this->chain = new vector<ValueInvoke*>();
+      }
+
+   private:
+      vector<ValueInvoke*>* chain;
+};
+
+class ValuePrimitive : public Value {
+   public:
+      ValuePrimitive(Type type) 
+	      : Value(OperandType::Primitive), type(type) {
+      }
+
+      Type getType() {
+	 return this->type;
+      }
+
+   private:
+      Type type;
+};
+
+class UnwrappedOperation {
+   public:
+      UnwrappedOperation() {
          
       }
-   //private:
-      
+};
+
+class Statement {
+   public:
+      Statement(const char *name) {
+         this->name = name;
+	 this->context = {};
+      }
+
+      const char* getName() {
+         return this->name;
+      }
+
+      vector<Statement*>* getContext() {
+         return &(this->context);
+      }
+   private:
+      const char *name;
+      vector<Statement*> context;
+};
+
+class SFunction : public Statement {
+   public: 
+      SFunction() 
+	      : Statement("function"), parameters(new vector<Variable>()) {
+      }
+
+      void addParameter(Variable *variable) {
+         this->parameters->push_back(*variable);
+      }
+
+      vector<Variable>* getParameters() {
+	 return this->parameters;
+      }
+  
+   private:
+      const char *name;
+      vector<Variable> *parameters;
+};
+
+class SCreate : public Statement {
+   public: 
+      SCreate(const char *identifier, Type type) 
+	      : Statement("create"), identifier(identifier), type(type) {
+      }
+
+      const char* getIdentifier() {
+	 return this->identifier;
+      }
+
+      Type getType() {
+	 return this->type;
+      }
+   private:
+      const char *identifier;
+      Type type;
+};
+
+class SDelete : public Statement {
+   public:
+      SDelete(const char *identifer) : Statement("delete") {
+         this->identifier = identifier;
+      }
+
+      const char* getIdentifier() {
+	 return this->identifier;
+      }
+
+   private:
+      const char *identifier;
 };
 
 
@@ -290,7 +504,7 @@ Token endOfFileToken;
 vector<TokenNode> *ast;
 TokenNode *contextNode;
 
-Function *functions;
+SFunction *functions;
 int functionsCounter;
 
 Variable *constants;
@@ -328,6 +542,23 @@ TokenResult* verifyOnceOrNone(TokenNode *node, vector<Token> *tokens, int index)
 TokenResult* verifyOnce(TokenNode *node, vector<Token> *tokens, int index);
 void verifyError(vector<Token> *tokens, int index);
 void verifyError(vector<Token> *tokens, int index, const char *text);
+
+// UNIFY (LEVEL 3)
+
+Statement unify(TokenResult *context);
+Statement unifyCreate(TokenResult *context);
+Statement unifyDelete(TokenResult *context);
+Statement unifySet(TokenResult *context);
+Statement unifyFor(TokenResult *context);
+Statement unifyWhile(TokenResult *context);
+Statement unifyIf(TokenResult *context);
+Statement unifyFunction(TokenResult *context);
+Statement unifyLambda(TokenResult *context);
+Statement unifyInvoke(TokenResult *context);
+Statement unifyIncrement(TokenResult *context);
+Statement unifyDecrement(TokenResult *context);
+Statement unifyExit(TokenResult *context);
+Statement unifyValues(TokenResult *context);
 
 // VALIDATOR (LEVEL 3)
 
@@ -581,7 +812,9 @@ Token nextSpecialToken(char *text, int length) {
       case '}': token.type = TokenType::BraceClose; break;
       case '[': token.type = TokenType::SquareBracketOpen; break;
       case ']': token.type = TokenType::SquareBracketClose; break;
-      
+      case '<': token.type = TokenType::AngleBracketOpen; break;
+      case '>': token.type = TokenType::AngleBracketClose; break;
+
       case '$': token.type = TokenType::Dollar; break;
       case '#': token.type = TokenType::Hashtag; break;
       case ':': token.type = TokenType::Colon; break;
@@ -878,48 +1111,64 @@ void initStatements() {
    contextNode = new TokenNode {};
 
    // ADDON OF TYPE
+   
+   TokenNode *type = (new TokenNode {})->inMode(TokenMode::BRANCH)->withName("type");
 
-   TokenNode *basetypeAndIdent = new TokenNode {
-      TokenType::Identifier,
-      TokenType::BaseType
-   };
+   TokenNode *typeGeneric = (new TokenNode {
+      (new TokenNode {
+         TokenType::BaseType,
+	 TokenType::Identifier
+      })->inMode(TokenMode::BRANCH),
+      TokenType::AngleBracketOpen,
+      (new TokenNode {
+	      type,
+	      (new TokenNode {
+		 TokenType::Comma,
+		 type
+	      })->inMode(TokenMode::MORE_OR_NONE)
+      })->inMode(TokenMode::ONCE_OR_NONE),
+      TokenType::AngleBracketClose
+   })->withName("typegeneric");
 
-   TokenNode *addonType = new TokenNode {
+   type->getList()->push_back(typeGeneric);
+   type->getList()->push_back(TokenType::BaseType);
+
+   TokenNode *addonType = (new TokenNode {
       TokenType::Colon,
-      basetypeAndIdent->inMode(TokenMode::BRANCH)
-   };
+      type->inMode(TokenMode::BRANCH)
+   })->withName("addontype");
  
    // FUNCTION
 
-   TokenNode *parameterDeclaration = new TokenNode {
+   TokenNode *parameterDeclaration = (new TokenNode {
       TokenType::Identifier,
       addonType->inMode(TokenMode::ONCE)
-   };
-
-   TokenNode *addonFunctionParameter = new TokenNode {
+   })->withName("parameter");
+   
+   TokenNode *addonFunctionParameter = (new TokenNode {
       TokenType::Comma,
       parameterDeclaration
-   };
+   })->withName("parameterseparated");
 
-   TokenNode *functionArgumentList = new TokenNode {
+   TokenNode *functionArgumentList = (new TokenNode {
       parameterDeclaration,
       addonFunctionParameter->inMode(TokenMode::MORE_OR_NONE)
-   };
+   })->withName("parameterlist");
 
    TokenNode *lambda = (new TokenNode {
       TokenType::BracketOpen,
       functionArgumentList->inMode(TokenMode::ONCE_OR_NONE),
       TokenType::BracketClose,
       TokenType::Colon,
-      basetypeAndIdent->inMode(TokenMode::BRANCH),
+      type->inMode(TokenMode::BRANCH),
       contextNode
-   })->withName("#lamda#");
+   })->withName("lambda");
    
-   TokenNode *function_ = new TokenNode {
+   TokenNode *function_ = (new TokenNode {
       "function",
       TokenType::Identifier,
       lambda
-   };
+   })->withName("function");
 
    // VALUE
 
@@ -929,7 +1178,7 @@ void initStatements() {
       TokenType::BaseType,
       TokenType::Identifier,
       lambda
-   })->withName("#value#");
+   })->withName("value");
 
    TokenNode *connector = (new TokenNode {
       TokenType::And,
@@ -938,38 +1187,34 @@ void initStatements() {
       TokenType::Minus,
       TokenType::Star,
       TokenType::Slash
-   })->withName("#connector#");
+   })->withName("connector");
 
-   TokenNode *notWrapper = new TokenNode {
+   TokenNode *notWrapper = (new TokenNode {
       TokenType::Not
-   };
+   })->withName("not");
 
-   TokenNode *wrapperValue = new TokenNode {
+   TokenNode *wrapperValue = (new TokenNode {
       notWrapper->inMode(TokenMode::ONCE_OR_NONE),
       value->inMode(TokenMode::BRANCH)
-   };
+   })->withName("valuewrapper");
 
-   TokenNode *addonConnectingValues = new TokenNode {
+   TokenNode *addonConnectingValues = (new TokenNode {
       connector->inMode(TokenMode::BRANCH),
       wrapperValue
-   };
+   })->withName("addonconnectorvalue");
 
    TokenNode *construct = (new TokenNode {
-      wrapperValue->inMode(TokenMode::ONCE),
+      wrapperValue,
       addonConnectingValues->inMode(TokenMode::MORE_OR_NONE)
-   })->withName("#construct#");
+   })->withName("construct");
 
-   TokenNode *enclosedConstruct = new TokenNode {
+   TokenNode *enclosedConstruct = (new TokenNode {
       TokenType::BracketOpen,
       construct,
       TokenType::BracketClose
-   };
+   })->withName("enclosedconstruct");
 
    // INVOKE
-
-   TokenNode *domainIdentifier = (new TokenNode {
-      TokenType::Identifier
-   })->withName("#domainIdentifier#");
 
    TokenNode *addonFunctionArgument = new TokenNode {
       TokenType::Comma,
@@ -989,6 +1234,13 @@ void initStatements() {
       functionArgument->inMode(TokenMode::ONCE_OR_NONE),
       TokenType::BracketClose
    };
+   
+   TokenNode *domainOrValue = (new TokenNode {
+      (new TokenNode {
+         TokenType::Identifier,
+         value#
+      })->inMode(TokenMode::BRANCH)
+   })->withName("domainorvalue");
 
    TokenNode *functionCallChain = (new TokenNode {
       domainIdentifier->inMode(TokenMode::ONCE_OR_NONE),
@@ -1180,6 +1432,26 @@ void verifyError(vector<Token> *tokens, int index) {
    cerr << "^" << endl;
    exit(1);
 }
+
+/* unify */
+
+Statement unify(TokenResult *context) {
+   
+}
+
+Statement unifyCreate(TokenResult *context);
+Statement unifyDelete(TokenResult *context);
+Statement unifySet(TokenResult *context);
+Statement unifyFor(TokenResult *context);
+Statement unifyWhile(TokenResult *context);
+Statement unifyIf(TokenResult *context);
+Statement unifyFunction(TokenResult *context);
+Statement unifyLambda(TokenResult *context);
+Statement unifyInvoke(TokenResult *context);
+Statement unifyIncrement(TokenResult *context);
+Statement unifyDecrement(TokenResult *context);
+Statement unifyExit(TokenResult *context);
+Statement unifyValues(TokenResult *context);
 
 /* util */
 

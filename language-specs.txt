@@ -22,6 +22,9 @@ newline: a literal new line character (aka \n)
 Identifier:
    a-z { ( a-z | A-Z | 0-9 | $ ) }
 
+GenericsType:
+   < BaseType >
+
 BaseType:
    bool
    byte
@@ -31,6 +34,7 @@ BaseType:
    float
    double
    long
+   array [ GenericsType ]
 
 Bool:
    ( true | false )
@@ -54,18 +58,20 @@ Integer:
 Decimal:
    ( 0 . 0-9 | Integer [ . 0-9 ] ) { 0-9 } ( f | d )
 
+Exponent:
+   ( Integer | Decimal ) ( e | E ) ( + | - ) Integer 
+
 Number:
    Byte
    Integer
    Decimal
    Exponent
 
-Exponent:
-   ( Integer | Decimal ) ( e | E ) ( + | - ) Integer 
-
 Value:
-   BaseType
-   BaseType
+   Bool
+   Char
+   String
+   Number
    Lambda
 
 ValueList:
@@ -102,23 +108,17 @@ Increment:
 Decrement:
    ( dec | decrement ) Identifier
 
-LogicalConnect:
-   ||
-   &&
-
 LogicalNegate:
    !
 
-LogicalCompare:
+Operator:
    <
    >
    <=
    >=
-
-Equals:
+   ||
+   &&
    ==
-
-Operator:
    *
    /
    +
@@ -126,9 +126,13 @@ Operator:
 
 Operand:
    ( Identifier | Value )
+   ( ( Identifier | Value ) )
 
-Calculation:
-   ( Operand | ( Calc ) ) Operator ( Operand | ( Calc ) ) { Operator ( Operand | ( Calc ) ) }
+EnclosedConstruct:
+   ( Construct )
+
+Construct:
+   [ LogicalNegate ] Operand ( Operator | | EnclosedConstruct ) Operand { Operator } 
 
 NumOrId:
    [ not ] ( Number | Identifier )
@@ -155,7 +159,7 @@ If:
    if ( FunctionReference | Identifier | Bool | Logical ) : Context
 
 FunctionReference: 
-   [ Identifier ] :: Identifier ( ValueList ) 
+   [ ( Identifier |  ) ] :: Identifier ( ValueList ) 
 
 Invoke:
    invoke FunctionReference

@@ -1,0 +1,30 @@
+### Abstract ###
+
+This document defines the instruction-set to be implemented
+by the virtual machine.
+
+
+### The Stack ###
+
+The stack entry size is defined by the <n> prefix, where n is the bit count. 
+For all operations, the result will be override the 0th stack position.
+For all operations, the 
+
+Stack [
+  3 [ ] [ ]...              <- ("$top" pointer type)
+  2 [ ] [ ]...
+  1 <4>[pointer type]  <4>[primitive type]  <?>[]  <64>[value/pointer]
+
+  0 [(4bit) result]           <- (all results, regardless of type, will be moved here)
+]
+
+
+### Semantics ###
+
+[Title]
+[operation, hex-value] [argument1] [argument2] ... [argument n]
+
+
+### Instructions ###
+
+push 

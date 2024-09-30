@@ -4,11 +4,15 @@ create x: int
 create imabool: bool
 create onlyname
 
+create list: array<array<int>>
+set list to true
+
 function myfunction(input: int): void
    create x: int
    invoke system::print(input + "My text" + util::freeRam(2 + 3, 9))
    set x to (x: int): void
       delete input
+      set x to x::add(4)
       exit 0 
       return input
    done

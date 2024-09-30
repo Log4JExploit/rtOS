@@ -44,15 +44,3 @@ FunctionTable:
 Operations:
    0x01: Create variable
    0x02: Store  
-
-
-Store:
-
-Invoke:
-
-Create:
-
-While:
-
-If:
-
