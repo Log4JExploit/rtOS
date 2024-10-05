@@ -1,7 +1,7 @@
 #!/bin/bash
 
 clear
-g++ --output ./build/compiler.o ./compiler.cpp
+g++ -g --output ./build/compiler.o ./compiler.cpp
 if [[ $? == 0 ]]; then
    ./build/compiler.o $@
    echo "Compiler finished with code: $?"

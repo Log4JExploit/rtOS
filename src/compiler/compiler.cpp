@@ -131,6 +131,9 @@ public:
       return this->name;
    }
 
+   bool isOptional() {
+      return this->mode == TokenMode::ONCE_OR_NONE || this->mode == TokenMode::MORE_OR_NONE;
+   }
 private:
    const char* name;
    TokenMode mode;
@@ -210,15 +213,45 @@ class TokenResult {
 	 return this->skipped;
       }
 
-      int getUnskipped() {
-	 return this->getTokenCount() - this->skipped;
+      int getMatchedTokens() {
+         int count = 0;
+	 for(variant<TokenResult*, Token>& v : this->tokens) {
+            if(holds_alternative<TokenResult*>(v)) {
+               TokenResult *result = get<TokenResult*>(v);
+	       if(result->isSatisfied()) {
+	          count += result->getTokenCount();   
+	       }
+	    } else {
+               count++;
+	    }  
+	 }
+	 return count;
       }
 
+      void setEof() {
+	 this->eof_ = true;
+      }
+
+      bool isEof() {
+	 if(this->getMatchedTokens() < 1) {
+            return this->eof_;
+         }
+         for(variant<TokenResult*, Token>& v : this->tokens) {
+            if(holds_alternative<TokenResult*>(v)) {
+               TokenResult *result = get<TokenResult*>(v);
+               if(result->isEof()) {
+                  return true;
+               }
+            }
+         }
+         return false;
+      }
    private:
       char *message;
       TokenNode *node;
       bool satisfied;
       int skipped;
+      bool eof_;
       vector<variant<TokenResult*, Token>> tokens;
 };
 
@@ -577,6 +610,7 @@ bool isAlphabetic(char character);
 bool isUpper(char character);
 bool isLower(char character);
 bool isNumeric(char character);
+const char* getTokenTypeByInt(int num);
 
 /* main */
 
@@ -604,7 +638,10 @@ int main(int argsCount, char **args) {
    
    //verifyError(&tokens, 6, "Test error!");
    
+   cout << "Initializing statements..." << endl;
    initStatements();
+
+   cout << "Verifying statements..." << endl;
    verify(&tokens);
 
    return 0;
@@ -632,9 +669,14 @@ vector<Token> tokenize(char *text, int length) {
       }
    }
 
+   while(tokens.back().type == TokenType::NewLine) {
+      tokens.pop_back();
+   }
+
    Token endToken;
-   endToken.type = TokenType::Keyword;
-   endToken.text = charcpy("done", 4);
+   endToken.type = TokenType::EoF;
+   endToken.text = charcpy("<EOF>", 5);
+   endToken.length = 5;
    tokens.push_back(endToken);
 
    return tokens;
@@ -681,6 +723,7 @@ void evaluateNumber(char* text, int *index, vector<Token> *tokens, int length) {
    }
 
    numberToken.text = charcpy(buffer.c_str(), buffer.length());
+   numberToken.length = buffer.length();
    tokens->push_back(numberToken);
 }
 
@@ -731,6 +774,7 @@ void evaluateString(char* text, int *index, vector<Token> *tokens, int length) {
 
    Token stringToken;
    stringToken.type = TokenType::String;
+   stringToken.length = strText.length();
    stringToken.text = charcpy(strText.c_str(), strText.length());
    tokens->push_back(stringToken);
 }
@@ -794,7 +838,6 @@ Token nextSpecialToken(char *text, int length) {
   
    Token token;
    token.text = charcpy(text, 1);
-   token.length = 1;
    
    switch(text[0]) {
       case '+': token.type = TokenType::Plus; break;
@@ -893,29 +936,43 @@ TokenResult* verifyContext(TokenNode *node, vector<Token> *list, int index) {
    TokenResult *result = new TokenResult(node, true);
    variant<TokenNode*, TokenType, const char*> terminator = "done";
    bool terminated = false;
-   
+
+   const char* error_eof = "Expected a new statement, but the file suddenly ended! What have you done?! °–°";
+   const char* error_invalid_statement = "Expected a new statement, but the first token doesn't make any sense :c";
+   const char* error_generic = "Invalid statement! An error occurred!";
+
    do {
-      if(verifyVariant(&terminator, list, index + result->getTokenCount())->isSatisfied()) {
+      bool success = false;
+      TokenResult *max = new TokenResult(nullptr, false);
+
+      Token next = list->at(result->getTokenCount() + index);
+      if(next.type == TokenType::EoF) {
+	 if(index == 0) {
+            return result;
+	 }
+         verifyError(list, index + result->getTokenCount(), error_eof);
+      }
+
+      TokenResult *terminatorResult = verifyVariant(&terminator, list, index + result->getTokenCount());
+
+      if(terminatorResult->isSatisfied()) { 
 	 terminated = true;
+	 result->add(terminatorResult);
 	 continue;
       }
       
-      cout << "1" << endl; 
-      bool success = false;
-      TokenResult *max = new TokenResult(nullptr, false);
-      cout << "2" << endl;
       for(TokenNode& node : *ast) {
-	 cout << "Trying to detect statement" << endl;
+	 cout << "Trying to detect statement" << node.getName() << endl;
          TokenResult *subResult = verifyEachVariant(&node, list, index + result->getTokenCount());
          if(!subResult->isSatisfied()) {
-	    if(subResult->getUnskipped() > max->getUnskipped()) {
+	    if(subResult->getMatchedTokens() > max->getMatchedTokens()) {
 	       max = subResult;
-	       cout << "FAIL: UPDATED MAX: " << max->getUnskipped() << "TOKENS IN SUBRESULT" << endl;
+	       cout << "FAIL: UPDATED MAX: " << max->getMatchedTokens() << "TOKENS IN SUBRESULT" << endl;
 	    } else {
-               cout << "FAIL, BUT NOT UPDATING!" << subResult->getUnskipped()  << endl; 
+               cout << "FAIL, BUT NOT UPDATING: UNSKIPPED: " << subResult->getMatchedTokens()  << endl; 
 	    }   
 	 } else {
-	    cout << "STATEMENT SUCCESS" << endl;
+	    cout << "STATEMENT SUCCESS: " << node.getName() << endl;
             success = true;
 	    result->add(subResult);
 	    break;
@@ -923,11 +980,18 @@ TokenResult* verifyContext(TokenNode *node, vector<Token> *list, int index) {
       }
 
       if(!success) {
-	 cout << "THROWING CONTEXT ERROR" << endl << endl;
-	 verifyError(list, index + result->getTokenCount() + max->getTokenCount(), max->hasMessage() ? max->getMessage() : "Invalid statement!");
+	 if(max->isEof()) {
+            verifyError(list, index + result->getTokenCount() + max->getTokenCount(), error_eof);
+	 } else if(result->getTokenCount() < 1) {
+            verifyError(list, index + result->getTokenCount() + max->getTokenCount(), error_invalid_statement);
+	 } else {
+            verifyError(list, index + result->getTokenCount() + max->getTokenCount(), max->hasMessage() ? max->getMessage() : error_generic);
+	 }
       }
+
    } while(!terminated);
 
+   cout << "MOVING 1 LAYER UP" << endl;
    return result;
 }
 
@@ -938,10 +1002,15 @@ TokenResult* verifyEachVariant(TokenNode *node, vector<Token> *tokens, int index
    for(variant<TokenNode*, TokenType, const char*> variantObj : *(node->getList())) {
       int localIndex = index + result->getTokenCount();
       cout << "INDEX: " << index << ", LOCAL: " << localIndex << endl; 
+
       TokenResult *subResult = verifyVariant(&variantObj, tokens, localIndex);
       
       cout << "SIZE: " << result->getTokens()->size() << " SKIPPED: " << subResult->getSkipped() << endl;
       cout << "SATISFIED: " << result->isSatisfied() << endl;
+
+      if(subResult->isEof()) {
+         result->setEof();
+      }
 
       if(!subResult->isSatisfied()) {
 	 cout << "RETURNING FAIL" << endl;
@@ -952,8 +1021,6 @@ TokenResult* verifyEachVariant(TokenNode *node, vector<Token> *tokens, int index
          }
 	 return result;
       }
-
-      cout << "Tokens available: " << result->getUnskipped()  << endl;
       
       if(subResult->getNode() == nullptr) {
 	 result->add(subResult->getTokens()->at(0));
@@ -981,6 +1048,15 @@ TokenResult* verifyVariant(variant<TokenNode*, TokenType, const char*> *variantO
 	 index++;
 	 token = tokens->at(index);
       	 cout << "SKIP" << endl;
+      } 
+
+      if(tokens->at(index).type == TokenType::EoF) {
+	 const char *msg = "Wanted to check for more tokens, but the file suddenly ended! You can't just stop typing... :c";
+         
+         cout << "RAN INTO EOF: THIS PART IS OPTIONAL THOUGH: IGNORING" << endl;
+         result->setSatisfied(false);
+         result->setEof();
+	 return result;
       }
 
       if(holds_alternative<const char*>(*variantObj)) {
@@ -1007,7 +1083,8 @@ TokenResult* verifyVariant(variant<TokenNode*, TokenType, const char*> *variantO
 	 TokenType targetType = get<TokenType>(*variantObj);
 	 
 	 if(targetType != token.type) {
-	    cout << "'" << token.text << "' IS NOT CORRECT TOKENTYPE " << static_cast<int>(targetType) <<  endl;
+            const char *nameOfType = getTokenTypeByInt(static_cast<int>(targetType)); 
+	    cout << "'" << token.text << "' IS NOT CORRECT TOKENTYPE: " << nameOfType <<  endl;
             string msg;
 	    msg += "This is not the correct token, expected type: ";
 	    msg += static_cast<int>(targetType);
@@ -1052,6 +1129,16 @@ TokenResult* verifyNode(TokenNode *node, vector<Token> *tokens, int index) {
    }
 }
 
+void debugBranchFail(variant<TokenNode*, TokenType, const char*> variantObj, TokenNode *node) {
+   if(holds_alternative<TokenNode*>(variantObj)) {
+      cout << "BRANCH FAIL ON: " << node->getName() << ": COULDN'T VERIFY BRANCH: " << get<TokenNode*>(variantObj)->getName() << endl;
+   } else if(holds_alternative<TokenType>(variantObj)) {
+      cout << "BRANCH FAIL ON: " << node->getName() << ": COULDN'T VERIFY BRANCH: Expected Token to be: " << getTokenTypeByInt(static_cast<int>(get<TokenType>(variantObj))) << endl;
+   } else {
+      cout << "BRANCH FAIL ON: " << node->getName() << ": COULDN'T VERIFY BRANCH: Expected Token to be keyword: " << get<const char*>(variantObj) << endl;
+   }
+}
+
 TokenResult* verifyBranch(TokenNode *node, vector<Token> *tokens, int index) {
    TokenResult *max = new TokenResult(nullptr, false);
    for(variant<TokenNode*, TokenType, const char*> variantObj : *(node->getList())) {
@@ -1060,6 +1147,7 @@ TokenResult* verifyBranch(TokenNode *node, vector<Token> *tokens, int index) {
 	 return branchResult;
       } else if(branchResult->getTokenCount() > max->getTokenCount()) {
 	 max = branchResult;
+         debugBranchFail(variantObj, node);
       }
    }
 
@@ -1084,6 +1172,9 @@ TokenResult* verifyOnceOrMore(TokenNode *node, vector<Token> *tokens, int index)
       TokenResult *resultAny = verifyOnce(node, tokens, index + result->getTokenCount());
       if(!resultAny->isSatisfied()) {
       	 failed = true;
+         if(resultAny->isEof()) {
+            result->setEof();
+	 }
       } else {
 	 result->add(resultAny);
       }
@@ -1108,8 +1199,28 @@ TokenResult* verifyOnce(TokenNode *node, vector<Token> *tokens, int index) {
 
 void initStatements() {
    ast = new vector<TokenNode>();
-   contextNode = new TokenNode {};
+   contextNode = (new TokenNode {})->withName("context");
 
+   TokenNode *primitiveBare = (new TokenNode {
+      "true",
+      "false",
+      TokenType::Identifier,
+      TokenType::Number,
+      TokenType::String,
+   })->inMode(TokenMode::BRANCH)->withName("primitivebare");
+
+   TokenNode *primitive = (new TokenNode {
+      primitiveBare
+   })->withName("primitive")->inMode(TokenMode::BRANCH);
+   
+   TokenNode *enclosedPrimitive = (new TokenNode {
+      TokenType::BracketOpen,
+      primitive,
+      TokenType::BracketClose
+   })->withName("primitiveenclosed");
+
+   primitive->getList()->insert(primitive->getList()->begin(), enclosedPrimitive);
+   
    // ADDON OF TYPE
    
    TokenNode *type = (new TokenNode {})->inMode(TokenMode::BRANCH)->withName("type");
@@ -1170,213 +1281,310 @@ void initStatements() {
       lambda
    })->withName("function");
 
-   // VALUE
+   primitive->getList()->insert(primitive->getList()->begin(), lambda);
 
-   TokenNode *value = (new TokenNode {
-      TokenType::String,
-      TokenType::Number,
-      TokenType::BaseType,
-      TokenType::Identifier,
-      lambda
-   })->withName("value");
+   // VALUE - Section Math
 
-   TokenNode *connector = (new TokenNode {
-      TokenType::And,
-      TokenType::Or,
-      TokenType::Plus,
-      TokenType::Minus,
-      TokenType::Star,
-      TokenType::Slash
-   })->withName("connector");
+   
+   TokenNode *mathOperand = (new TokenNode {
+      // functionCallChain added here retroactively
+      primitive
+   })->inMode(TokenMode::BRANCH)->withName("operandmath");
 
-   TokenNode *notWrapper = (new TokenNode {
-      TokenType::Not
-   })->withName("not");
+   TokenNode *mathOperator = (new TokenNode {
+		   TokenType::Plus,
+		   TokenType::Minus,
+		   TokenType::Star,
+		   TokenType::Slash
+   })->inMode(TokenMode::BRANCH)->withName("operatormath");
 
-   TokenNode *wrapperValue = (new TokenNode {
-      notWrapper->inMode(TokenMode::ONCE_OR_NONE),
-      value->inMode(TokenMode::BRANCH)
-   })->withName("valuewrapper");
+   TokenNode *mathConstructBare = (new TokenNode {
+      mathOperand,
+      mathOperator,
+      mathOperand,
+      (new TokenNode {
+         mathOperator,
+	 mathOperand
+      })->inMode(TokenMode::MORE_OR_NONE)->withName("addonoperatorandoperandpair")
+   })->withName("constructmath");
 
-   TokenNode *addonConnectingValues = (new TokenNode {
-      connector->inMode(TokenMode::BRANCH),
-      wrapperValue
-   })->withName("addonconnectorvalue");
+   TokenNode *mathWrapper = (new TokenNode {
+      mathConstructBare
+   })->withName("mathwrapper")->inMode(TokenMode::BRANCH);
 
-   TokenNode *construct = (new TokenNode {
-      wrapperValue,
-      addonConnectingValues->inMode(TokenMode::MORE_OR_NONE)
-   })->withName("construct");
-
-   TokenNode *enclosedConstruct = (new TokenNode {
+   TokenNode *mathConstructEnclosed = (new TokenNode {
       TokenType::BracketOpen,
-      construct,
+      mathWrapper,
       TokenType::BracketClose
-   })->withName("enclosedconstruct");
+   })->withName("constructmathenclosed");
+
+   mathWrapper->getList()->insert(mathWrapper->getList()->end(), mathConstructEnclosed);
+   mathOperand->getList()->insert(mathOperand->getList()->end(), mathConstructEnclosed);
+
+   TokenNode *math = (new TokenNode {
+      mathConstructBare,
+      mathConstructEnclosed
+   })->withName("math")->inMode(TokenMode::BRANCH);
+
+
+   // Value - Section Compare
+
+
+   TokenNode *compareOperand = (new TokenNode {
+      math,
+      mathOperand
+   })->withName("operandcompare")->inMode(TokenMode::BRANCH);
+
+   TokenNode *compareOperator = (new TokenNode {
+      (new TokenNode { TokenType::Equals, TokenType::Equals })->withName("equals"),
+      (new TokenNode { TokenType::AngleBracketClose, TokenType::Equals })->withName("greaterequals"),
+      (new TokenNode { TokenType::AngleBracketOpen, TokenType::Equals })->withName("smallerequals"),
+      (new TokenNode { TokenType::AngleBracketClose })->withName("greater"),
+      (new TokenNode { TokenType::AngleBracketOpen })->withName("smaller")
+   })->withName("operatorcompare")->inMode(TokenMode::BRANCH);
+
+   TokenNode *compareConstructBare = (new TokenNode {
+      compareOperand,
+      compareOperator,
+      compareOperand
+   })->withName("constructcomparebare");
+
+   TokenNode *compare = (new TokenNode {
+      compareConstructBare
+   })->withName("compare")->inMode(TokenMode::BRANCH);
+   
+   TokenNode *compareConstructEnclosed = (new TokenNode {
+      TokenType::BracketOpen,
+      compare,
+      TokenType::BracketClose
+   })->withName("constructcompareenclosed");
+
+   compare->getList()->insert(compare->getList()->end(), compareConstructEnclosed);
+   
+   // Value - Section Logic
+
+   TokenNode *not_ = (new TokenNode {
+      TokenType::Not
+   })->inMode(TokenMode::ONCE_OR_NONE)->withName("not");
+
+   TokenNode *logicOperand = (new TokenNode {
+      // functionCallChain added here retroactively
+      compare,
+      "true",
+      "false",
+      TokenType::Identifier
+   })->inMode(TokenMode::BRANCH)->withName("operandlogic");
+
+   TokenNode *logicOperator = (new TokenNode {
+      (new TokenNode { TokenType::And, TokenType::And })->withName("and"),
+      (new TokenNode { TokenType::Or, TokenType::Or })->withName("or")
+   })->withName("operatorlogic")->inMode(TokenMode::BRANCH);
+
+   TokenNode *logicConstructBare = (new TokenNode {
+      not_,
+      logicOperand,
+      logicOperator,
+      not_,
+      logicOperand,
+      (new TokenNode {
+         logicOperator,
+	 not_,
+	 logicOperand
+      })->inMode(TokenMode::MORE_OR_NONE)
+   })->withName("constructlogic");
+
+   TokenNode *logic = (new TokenNode {
+      logicConstructBare
+   })->withName("logic")->inMode(TokenMode::BRANCH);
+   
+   TokenNode *logicConstructEnclosed = (new TokenNode {
+      TokenType::BracketOpen,
+      logic,
+      TokenType::BracketClose
+   })->withName("constructlogicenclosed");
+
+   logic->getList()->insert(logic->getList()->end(), logicConstructEnclosed);
+   logicOperand->getList()->insert(logicOperand->getList()->end(), logicConstructEnclosed);
+
+
+   // Value - Section Value Object 
+
+   TokenNode *valueBare = (new TokenNode {
+      logic,
+      compare,
+      math,
+      primitive
+   })->inMode(TokenMode::BRANCH)->withName("valuebare");
+  
+   TokenNode *value = (new TokenNode {
+      valueBare
+   })->withName("value")->inMode(TokenMode::BRANCH);
+   
+   TokenNode *enclosedValue = (new TokenNode {
+      TokenType::BracketOpen,
+      value,
+      TokenType::BracketClose
+   })->withName("valueenclosed");
+
+   value->getList()->insert(value->getList()->end(), enclosedValue);
 
    // INVOKE
 
-   TokenNode *addonFunctionArgument = new TokenNode {
+   TokenNode *addonFunctionArgument = (new TokenNode {
       TokenType::Comma,
-      construct
-   };
+      value
+   })->withName("functionargumentaddon");
 
-   TokenNode *functionArgument = new TokenNode {
-      construct,
+
+   TokenNode *functionArgument = (new TokenNode {
+      value,
       addonFunctionArgument->inMode(TokenMode::MORE_OR_NONE)
-   };
+   })->withName("functionArgument");
 
-   TokenNode *functionCall = new TokenNode {
+   TokenNode *functionCall = (new TokenNode {
       TokenType::Colon,
       TokenType::Colon,
       TokenType::Identifier,
       TokenType::BracketOpen,
       functionArgument->inMode(TokenMode::ONCE_OR_NONE),
       TokenType::BracketClose
-   };
+   })->withName("functioncallsingle");
    
    TokenNode *domainOrValue = (new TokenNode {
       (new TokenNode {
          TokenType::Identifier,
-         value#
+         TokenType::BaseType
       })->inMode(TokenMode::BRANCH)
    })->withName("domainorvalue");
 
    TokenNode *functionCallChain = (new TokenNode {
-      domainIdentifier->inMode(TokenMode::ONCE_OR_NONE),
+      domainOrValue->inMode(TokenMode::ONCE_OR_NONE),
       functionCall->inMode(TokenMode::ONCE_OR_MORE)
-   })->withName("#functionCallChain#");
+   })->withName("functionCallChain");
    
-   TokenNode *invoke_ = new TokenNode {
+   TokenNode *invoke_ = (new TokenNode {
       "invoke",
       functionCallChain->inMode(TokenMode::ONCE)
-   };
-
-   value->getList()->insert(value->getList()->begin(), functionCallChain);
-   value->getList()->insert(value->getList()->begin(), enclosedConstruct);
+   })->withName("invoke");
+   
+   mathOperand->getList()->insert(mathOperand->getList()->begin(), functionCallChain);
+   compareOperand->getList()->insert(compareOperand->getList()->begin(), functionCallChain);
+   logicOperand->getList()->insert(logicOperand->getList()->begin(), functionCallChain);
 
    // IF (ELSE)
 
-   TokenNode *else_ = new TokenNode {
+   TokenNode *else_ = (new TokenNode {
       "else",
       contextNode
-   };
+   })->withName("else");
 
-   TokenNode *if_ = new TokenNode {
+   TokenNode *if_ = (new TokenNode {
       "if",
-      construct->inMode(TokenMode::ONCE),
+      value,
       TokenType::Colon,
       contextNode
-   };
+   })->withName("if");
 
-   TokenNode *elseIf = new TokenNode {
+   TokenNode *elseIf = (new TokenNode {
       "else",
-      (new TokenNode {
-         if_,
-	 contextNode
-      })->inMode(TokenMode::BRANCH)
-   };
+      if_,
+   })->withName("elseif");
 
    if_->getList()->insert(if_->getList()->end(), elseIf->inMode(TokenMode::MORE_OR_NONE));
+   if_->getList()->insert(if_->getList()->end(), else_->inMode(TokenMode::ONCE_OR_NONE));
 
    // WHILE
    
-   TokenNode *while_ = new TokenNode {
+   TokenNode *while_ = (new TokenNode {
       "while",
-      construct,
+      value,
       TokenType::Colon,
       contextNode
-   };
+   })->withName("while");
 
    // SET
 
-   TokenNode *set_ = new TokenNode {
+   TokenNode *set_ = (new TokenNode {
       "set",
       TokenType::Identifier,
       "to",
-      construct
-   };
+      value
+   })->withName("set");
 
    // CREATE
 
-   TokenNode *addonValueAssign = new TokenNode {
+   TokenNode *addonValueAssign = (new TokenNode {
       "set",
       "to",
-      construct
-   };
+      value
+   })->withName("createset");
 
-   TokenNode *create_ = new TokenNode {
+   TokenNode *create_ = (new TokenNode {
       "create",
       TokenType::Identifier,
       addonType->inMode(TokenMode::ONCE_OR_NONE),
       addonValueAssign->inMode(TokenMode::ONCE_OR_NONE)
-   };
+   })->withName("create");
 
    // DELETE
 
-   TokenNode *delete_ = new TokenNode {
+   TokenNode *delete_ = (new TokenNode {
       "delete",
       TokenType::Identifier
-   };
+   })->withName("delete");
 
    // FOR
 
-   TokenNode *addonNumberOrId = new TokenNode {
-         (new TokenNode { TokenType::Identifier, TokenType::Number })->inMode(TokenMode::BRANCH)
-   };
-
-   TokenNode *for_ = new TokenNode {
+   TokenNode *for_ = (new TokenNode {
       "for",
       "until",
       (new TokenNode {
          (new TokenNode { "above", "below" })->inMode(TokenMode::BRANCH)
       })->inMode(TokenMode::ONCE_OR_NONE),
-      addonNumberOrId,
+      value,
       (new TokenNode {
          (new TokenNode { "up", "down" })->inMode(TokenMode::BRANCH)
       })->inMode(TokenMode::ONCE_OR_NONE),
-      addonNumberOrId,
+      value,
       (new TokenNode { 
          "set",
          TokenType::Identifier,
-      })->inMode(TokenMode::ONCE_OR_NONE),
+      })->inMode(TokenMode::ONCE_OR_NONE)->withName("forset"),
       TokenType::Colon,
       contextNode
-   };
+   })->withName("for");
 
    // INC(REMENT)
    
-   TokenNode *inc_ = new TokenNode {
+   TokenNode *inc_ = (new TokenNode {
       (new TokenNode {
          "inc", "increment"
       })->inMode(TokenMode::BRANCH),
       TokenType::Identifier
-   };
+   })->withName("increment");
 
    // DEC(REMENT)
    
-   TokenNode *dec_ = new TokenNode {
+   TokenNode *dec_ = (new TokenNode {
       (new TokenNode {
          "dec", "decrement"
       })->inMode(TokenMode::BRANCH),
       TokenType::Identifier
-   };
+   })->withName("decrement");
 
    // EXIT
 
-   TokenNode *exit_ = new TokenNode {
+   TokenNode *exit_ = (new TokenNode {
       "exit",
-      (new TokenNode { 
-         TokenType::Number 
-      })->inMode(TokenMode::ONCE_OR_NONE)
-   };
+      value
+   })->withName("exit");
 
    // RETURN
    
-   TokenNode *return_ = new TokenNode {
+   TokenNode *return_ = (new TokenNode {
       "return",
-      construct
-   };
+      value
+   })->withName("return");
 
    ast->push_back(*return_);
    ast->push_back(*exit_);
@@ -1393,6 +1601,7 @@ void initStatements() {
 }
 
 void verifyError(vector<Token> *tokens, int index, const char *text) {
+   cout << endl;
    cout << "Error Message: " << text;
    verifyError(tokens, index);
 }
@@ -1404,25 +1613,32 @@ void verifyError(vector<Token> *tokens, int index) {
    for(int i = 0; i < index; i++) {
       if((*tokens)[i].type == TokenType::NewLine) {
           lineCount++;
-	  tokenIndex = i + 1;
+	  tokenIndex = i;
       }
    }
-   
+  
    cerr << endl;
    cerr << "Error is located in line " << lineCount << ": " << endl << endl;
    
    int lineErrorIndex = 0;
 
-   for(int i = tokenIndex; i < tokens->size(); i++) {
-      if(tokens->at(i).type == TokenType::NewLine) {
-	 break;
-      }
+   for(int i = tokenIndex + 1; i < tokens->size(); i++) {
       if(i <= index) {
          lineErrorIndex += (*tokens)[i].length;
       }
-      cerr << (*tokens)[i].text;
+      if(tokens->at(i).type == TokenType::NewLine || tokens->at(i).type == TokenType::EoF) {
+	 if(tokens->at(i).type == TokenType::EoF) {
+            cerr << tokens->at(i).text;
+	 }
+	 break;
+      }
+      if(tokens->at(i).type == TokenType::String) {
+         cerr << "\"" <<(*tokens)[i].text << "\"";
+      } else {
+         cerr << (*tokens)[i].text;
+      }
    }
-   
+
    cerr << endl;
 
    for(int i = 0; i < lineErrorIndex - 2; i++) {
@@ -1559,4 +1775,45 @@ bool isNumeric(char c) {
    return c >= '0' && c <= '9';
 }
 
+const char* getTokenTypeByInt(int num) {
+   const char* text = "UNKNOWN_TOKEN_TYPE_BY_INT";
+   
+   switch(num) {
+      case 0: text = "BaseType"; break;
+      case 1: text = "Keyword"; break;
+      case 2: text = "Identifier"; break;
+      case 3: text = "Number"; break;
+      case 4: text = "String"; break;
+      case 5: text = "BracketOpen"; break;
+      case 6: text = "BracketClose"; break;
+      case 7: text = "SquareBracketOpen"; break;
+      case 8: text = "SquareBracketClose"; break;
+      case 9: text = "BraceOpen"; break;
+      case 10: text = "BraceClose"; break;
+      case 11: text = "AngleBracketOpen"; break;
+      case 12: text = "AngleBracketClose"; break;
+      case 13: text = "Plus"; break;
+      case 14: text = "Minus"; break;
+      case 15: text = "Slash"; break;
+      case 16: text = "Star"; break;
+      case 17: text = "QuoteSingle"; break;
+      case 18: text = "QuoteDouble"; break;
+      case 19: text = "Hashtag"; break;
+      case 20: text = "Colon"; break;
+      case 21: text = "Dollar"; break;
+      case 22: text = "Space"; break;
+      case 23: text = "Point"; break;
+      case 24: text = "Comma"; break;
+      case 25: text = "And"; break;
+      case 26: text = "Or"; break;
+      case 27: text = "Equals"; break;
+      case 28: text = "Not"; break;
+      case 29: text = "Separator"; break;
+      case 30: text = "NewLine"; break;
+      case 31: text = "Other"; break;
+      case 32: text = "EoF"; break;
+   }
+
+   return text;
+}
 /* todo */

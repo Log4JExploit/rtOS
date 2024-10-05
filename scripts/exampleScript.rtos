@@ -9,11 +9,11 @@ set list to true
 
 function myfunction(input: int): void
    create x: int
-   invoke system::print(input + "My text" + util::freeRam(2 + 3, 9))
+   invoke system::print(input + 4 + util::freeRam(2 + 3, 9))
    set x to (x: int): void
       delete input
-      set x to x::add(4)
-      exit 0 
+      set x to 4 + 3
+      exit abc 
       return input
    done
    for until 5 up 4 set count:
@@ -24,3 +24,5 @@ done
 invoke ::myfunction(4)
 invoke system::print("My Paragraph §:\n \u00A7 <- paragraph")
 
+if 4 || || 4:
+   exit 1
