@@ -1,5 +1,9 @@
 create x: int set to 1 < ::add(2, 3)::divide(2) || 4 > (5 + 6)
 
+create a: array<int> set to [
+  1, 2, 3, [], []
+]
+
 if (a < b) && b || (((3 + 4)) < numbers::any()):
    invoke long::print("Success")
 done

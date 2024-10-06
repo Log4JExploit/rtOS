@@ -66,6 +66,7 @@ struct Token {
    TokenType type;
    char *text;
    int length;
+   int index;
 };
 
 /* Keywords */
@@ -466,19 +467,43 @@ class Statement {
    public:
       Statement(const char *name) {
          this->name = name;
-	 this->context = {};
       }
 
       const char* getName() {
          return this->name;
       }
 
-      vector<Statement*>* getContext() {
-         return &(this->context);
-      }
    private:
       const char *name;
-      vector<Statement*> context;
+};
+
+class Context {
+   public:
+      Context(const char *name, Statement* owner) {
+         this->name = name;
+	 this->owner = owner;
+	 this->statements = new vector<Statement*>();
+      }
+
+      const char* getName() {
+         return this->name;
+      }
+      
+      const Statement* getOwner() {
+         return this->owner;
+      }
+
+      vector<Statement*>* getStatements() {
+	 return this->statements;
+      }
+
+      void add(Statement *statement) {
+	 this->statements->push_back(statement);
+      }
+   private:
+      const Statement *owner;
+      const char *name;
+      vector<Statement*> *statements;
 };
 
 class SFunction : public Statement {
@@ -532,7 +557,6 @@ class SDelete : public Statement {
       const char *identifier;
 };
 
-
 Token endOfFileToken;
 vector<TokenNode> *ast;
 TokenNode *contextNode;
@@ -579,19 +603,20 @@ void verifyError(vector<Token> *tokens, int index, const char *text);
 // UNIFY (LEVEL 3)
 
 Statement unify(TokenResult *context);
-Statement unifyCreate(TokenResult *context);
-Statement unifyDelete(TokenResult *context);
-Statement unifySet(TokenResult *context);
-Statement unifyFor(TokenResult *context);
-Statement unifyWhile(TokenResult *context);
-Statement unifyIf(TokenResult *context);
-Statement unifyFunction(TokenResult *context);
-Statement unifyLambda(TokenResult *context);
-Statement unifyInvoke(TokenResult *context);
-Statement unifyIncrement(TokenResult *context);
-Statement unifyDecrement(TokenResult *context);
-Statement unifyExit(TokenResult *context);
-Statement unifyValues(TokenResult *context);
+Statement unifyStatement(TokenResult *statement);
+Statement unifyCreate(TokenResult *statement);
+Statement unifyDelete(TokenResult *statement);
+Statement unifySet(TokenResult *statement);
+Statement unifyFor(TokenResult *statement);
+Statement unifyWhile(TokenResult *statement);
+Statement unifyIf(TokenResult *statement);
+Statement unifyFunction(TokenResult *statement);
+Statement unifyLambda(TokenResult *statement);
+Statement unifyInvoke(TokenResult *statement);
+Statement unifyIncrement(TokenResult *statement);
+Statement unifyDecrement(TokenResult *statement);
+Statement unifyExit(TokenResult *statement);
+Statement unifyValues(TokenResult *value);
 
 // VALIDATOR (LEVEL 3)
 
@@ -614,6 +639,8 @@ const char* getTokenTypeByInt(int num);
 
 /* main */
 
+vector<Token> *tokenList;
+
 int main(int argsCount, char **args) {
    if(argsCount < 3) {
       cerr << "Requires two arguments: 1: input file, 2: output file" << endl;
@@ -631,7 +658,8 @@ int main(int argsCount, char **args) {
    cout << content << endl;
    
    vector<Token> tokens = tokenize(content, contentStr.length());
- 
+   tokenList = &tokens;
+
    for(Token token : tokens) {
       cout << "\"" << token.text << "\", ";
    }
@@ -677,6 +705,7 @@ vector<Token> tokenize(char *text, int length) {
    endToken.type = TokenType::EoF;
    endToken.text = charcpy("<EOF>", 5);
    endToken.length = 5;
+   endToken.index = tokens.size();
    tokens.push_back(endToken);
 
    return tokens;
@@ -686,6 +715,7 @@ void evaluateToken(char* text, int *index, vector<Token> *tokens, int length, To
    Token token = nextToken(&text[*index], length - (*index));
    *last = token.type;
    *index += token.length;
+   token.index = tokens->size();
    tokens->push_back(token);
 }
 
@@ -724,6 +754,7 @@ void evaluateNumber(char* text, int *index, vector<Token> *tokens, int length) {
 
    numberToken.text = charcpy(buffer.c_str(), buffer.length());
    numberToken.length = buffer.length();
+   numberToken.index = tokens->size();
    tokens->push_back(numberToken);
 }
 
@@ -776,6 +807,7 @@ void evaluateString(char* text, int *index, vector<Token> *tokens, int length) {
    stringToken.type = TokenType::String;
    stringToken.length = strText.length();
    stringToken.text = charcpy(strText.c_str(), strText.length());
+   stringToken.index = tokens->size();
    tokens->push_back(stringToken);
 }
 
@@ -1199,7 +1231,7 @@ TokenResult* verifyOnce(TokenNode *node, vector<Token> *tokens, int index) {
 
 void initStatements() {
    ast = new vector<TokenNode>();
-   contextNode = (new TokenNode {})->withName("context");
+   contextNode = (new TokenNode {})->withName("context"); 
 
    TokenNode *primitiveBare = (new TokenNode {
       "true",
@@ -1220,6 +1252,7 @@ void initStatements() {
    })->withName("primitiveenclosed");
 
    primitive->getList()->insert(primitive->getList()->begin(), enclosedPrimitive);
+   
    
    // ADDON OF TYPE
    
@@ -1427,6 +1460,26 @@ void initStatements() {
    })->withName("valueenclosed");
 
    value->getList()->insert(value->getList()->end(), enclosedValue);
+
+   // ARRAY
+   
+   TokenNode *arrayArgument = (new TokenNode {
+      TokenType::Comma,
+      value
+   })->withName("arrayargument")->inMode(TokenMode::MORE_OR_NONE);
+
+   TokenNode *arrayBody = (new TokenNode {
+      value,
+      arrayArgument
+   })->withName("arraybody")->inMode(TokenMode::ONCE_OR_NONE);
+
+   TokenNode *array = (new TokenNode {
+      TokenType::SquareBracketOpen,
+      arrayBody,
+      TokenType::SquareBracketClose
+   })->withName("array");
+
+   primitive->getList()->insert(primitive->getList()->end(), array);
 
    // INVOKE
 
@@ -1652,7 +1705,16 @@ void verifyError(vector<Token> *tokens, int index) {
 /* unify */
 
 Statement unify(TokenResult *context) {
-   
+  for(variant<TokenResult*, Token> statement : *(context->getTokens())) {
+    if(holds_alternative<Token>(statement)) {
+       verifyError(tokenList, get<Token>(statement).index, "Expected statement, not individual token!");
+    }
+    unifyStatement(get<TokenResult*>(statement));
+  }
+}
+
+Statement unifyStatement(TokenResult *statement) {
+   //TokenNode node; 
 }
 
 Statement unifyCreate(TokenResult *context);
