@@ -16,7 +16,28 @@ uint32_t counter;
 
 void readInputFile(const char *filename);
 void initStack();
+void initConstants();
+void initFunctions();
 void beginExecution();
+
+void _add();
+void _sub();
+void _mul();
+void _div();
+
+void _grab();
+void _return();
+void _create();
+void _delete();
+void _set();
+
+void _equal();
+void _smaller();
+void _greater();
+
+void _cjmp();
+void _jmp();
+void _invoke();
 
 
 int main(int argsCount, const char **args) {

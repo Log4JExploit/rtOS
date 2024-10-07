@@ -48,7 +48,8 @@ enum class TokenType {
    Not,
 
    Separator,
-   NewLine, 
+   NewLine,
+   Char,
    Other,
    EoF
 };
@@ -274,6 +275,7 @@ enum class BasicType {
    Float,
    Double,
    Long,
+   Pointer
 };
 
 enum class Operator {
@@ -317,12 +319,45 @@ class Type {
       vector<Type*> *genericTypes;
 };
 
-struct Variable {
-   PointerType pointerType;
-   Type type;
+class Variable {
    
-   long value;
-   char *identifier;
+   public:
+      Variable(PointerType pointerType, Type type, const char* identifier = nullptr, long value = 0)
+      : pointerType(pointerType), type(type), value(value) {
+         if (identifier) {
+            identifier = charcpy(identifier, strlen(identifier));
+         }
+      }
+
+      PointerType getPointerType() {
+         return pointerType;
+      }
+
+      Type getType() {
+         return this->type;
+      }
+
+      long getValue() {
+         return this->value;
+      }
+
+      void setValue(long value) {
+         this->value = value;
+      }
+
+      const char* getIdentifier() {
+         return this->identifier;
+      }
+
+      bool hasIdentifier() {
+         return (this->identifier) != nullptr;
+      }
+
+   private:
+      PointerType pointerType;
+      char *identifier;
+      long value;
+      Type type;
 };
 
 enum class OperandType {
@@ -331,6 +366,50 @@ enum class OperandType {
    Primitive,
    Identifier,
    Block
+};
+
+
+class Unresolved {
+   public:
+      Unresolved(TokenResult *value) {
+         this->value = value;
+	 if(strcmp(value->getNode()->getName(), "value") != 0) {
+            throw invalid_argument("Given TokenResult is not a value!");
+	 }
+      }
+
+      vector<Token>* getReferences() {
+         vector<Token> *list = new vector<Token>();
+	 resolve(list, this->value, true); 
+      }
+
+      vector<Token>* getConstants() {
+         vector<Token> *list = new vector<Token>();
+	 resolve(list, this->value, false); 
+      }
+   private:
+      void resolve(vector<Token> *list, TokenResult *target, bool ids) {
+         for(variant<TokenResult*, Token>& next : *(target->getTokens())) {
+            
+	    if(holds_alternative<TokenResult*>(next)) {
+               TokenResult *result = get<TokenResult*>(next);
+	       
+	       if(strcmp(result->getNode()->getName(), "primitivebare") == 0) {
+                  Token token = get<Token>(result->getTokens()->at(0));
+                  
+		  if(token.type == TokenType::Identifier && ids) {
+                     list->push_back(token);
+		  } else if(token.type != TokenType::Identifier && !ids) {
+	             list->push_back(token);
+		  }
+	       } else {
+                  resolve(list, result, ids);
+	       }
+	    }
+	 }
+      }
+
+      TokenResult *value;
 };
 
 class Value {
@@ -347,9 +426,9 @@ class Value {
       OperandType operandType;
 };
 
-class Resolveable {
+class Operation {
    public:
-      Resolveable(Value *first, Value *second, Operator op) {
+      Operation(Value *first, Value *second, Operator op) {
          this->first = first;
 	 this->second = second;
 	 this->op = op;
@@ -581,13 +660,14 @@ void evaluateToken(char* text, int *index, vector<Token> *tokens, int length, To
 void evaluateNumber(char* text, int *index, vector<Token> *tokens, int length);
 void evaluateComment(char* text, int *index, vector<Token> *tokens, int length);
 void evaluateString(char* text, int *index, vector<Token> *tokens, int length);
+void evaluateChar(char* text, int *index, vector<Token> *tokens, int length);
 char* evaluateUnicode(char* text, int *index, vector<Token> *tokens,  int length);
 int byEscapedCharacter(char c);
 
 // PARSER (LEVEL 2)
 
 void initStatements();
-void verify(vector<Token> *tokens);
+TokenResult* verify(vector<Token> *tokens);
 TokenResult* verifyContext(TokenNode *node, vector<Token> *list, int index);
 TokenResult* verifyEachVariant(TokenNode *node, vector<Token> *tokens, int index);
 TokenResult* verifyVariant(variant<TokenNode*, TokenType, const char*> *variant, vector<Token> *tokens, int index);
@@ -602,21 +682,21 @@ void verifyError(vector<Token> *tokens, int index, const char *text);
 
 // UNIFY (LEVEL 3)
 
-Statement unify(TokenResult *context);
-Statement unifyStatement(TokenResult *statement);
-Statement unifyCreate(TokenResult *statement);
-Statement unifyDelete(TokenResult *statement);
-Statement unifySet(TokenResult *statement);
-Statement unifyFor(TokenResult *statement);
-Statement unifyWhile(TokenResult *statement);
-Statement unifyIf(TokenResult *statement);
-Statement unifyFunction(TokenResult *statement);
-Statement unifyLambda(TokenResult *statement);
-Statement unifyInvoke(TokenResult *statement);
-Statement unifyIncrement(TokenResult *statement);
-Statement unifyDecrement(TokenResult *statement);
-Statement unifyExit(TokenResult *statement);
-Statement unifyValues(TokenResult *value);
+Context* unify(Statement* owner, TokenResult *context);
+Statement* unifyStatement(TokenResult *statement);
+Statement* unifyCreate(TokenResult *statement);
+Statement* unifyDelete(TokenResult *statement);
+Statement* unifySet(TokenResult *statement);
+Statement* unifyFor(TokenResult *statement);
+Statement* unifyWhile(TokenResult *statement);
+Statement* unifyIf(TokenResult *statement);
+Statement* unifyFunction(TokenResult *statement);
+Statement* unifyLambda(TokenResult *statement);
+Statement* unifyInvoke(TokenResult *statement);
+Statement* unifyIncrement(TokenResult *statement);
+Statement* unifyDecrement(TokenResult *statement);
+Statement* unifyExit(TokenResult *statement);
+Statement* unifyValue(TokenResult *value);
 
 // VALIDATOR (LEVEL 3)
 
@@ -670,7 +750,10 @@ int main(int argsCount, char **args) {
    initStatements();
 
    cout << "Verifying statements..." << endl;
-   verify(&tokens);
+   TokenResult *result = verify(&tokens);
+   
+   cout << "Unifying statements..." << endl;
+   Context *context = unify(nullptr, result);
 
    return 0;
 }
@@ -678,6 +761,7 @@ int main(int argsCount, char **args) {
 /* tokenizer */
 
 vector<Token> tokenize(char *text, int length) {
+   char *buf = static_cast<char*>(malloc());
    bool comment = false;
    int index = 0;
    vector<Token> tokens;
@@ -692,6 +776,8 @@ vector<Token> tokenize(char *text, int length) {
          evaluateNumber(text, &index, &tokens, length);
       } else if(first == '\"') {
          evaluateString(text, &index, &tokens, length);
+      } else if(first == '\'') {
+	 evaluateChar(text, &index, &tokens, length);
       } else {
          evaluateToken(text, &index, &tokens, length, &last);
       }
@@ -811,6 +897,56 @@ void evaluateString(char* text, int *index, vector<Token> *tokens, int length) {
    tokens->push_back(stringToken);
 }
 
+void evaluateChar(char* text, int *index, vector<Token> *tokens, int length) {
+   cout << endl << "Char: " << text[(*index)] << endl;
+   
+   Token charToken;
+   charToken.type = TokenType::Char;
+   charToken.index = tokens->size();
+   charToken.text = charcpy(&text[(*index)], 2);
+   charToken.length = 2;
+   tokens->push_back(charToken);
+   
+   (*index)++;
+   char character;
+   
+   if(*index + 1 >= length) {
+      verifyError(tokens, tokens->size() - 1, "Char was never terminated!");
+   } else if(text[(*index)] == '\'') {
+      verifyError(tokens, tokens->size() - 1, "Char was terminated without specifying a character!");
+   }   
+
+   if(text[(*index)] == '\\') {
+      char next = text[(*index) + 1];
+      if(next == 'u') {
+         character = evaluateUnicode(text, index, tokens, length)[0];
+	 (*index) += 6;
+      } else {
+	 int escapedValue = byEscapedCharacter(next);
+         if(escapedValue == -1) {
+            verifyError(tokens, tokens->size() - 1, "Unknown escaped character!");
+         }
+         character = (char) escapedValue;
+         (*index) += 2; 
+      }
+   } else {
+      character = text[(*index)];
+      (*index)++;
+   }
+  
+   if(text[(*index)] != '\'') {
+      verifyError(tokens, tokens->size() - 1, "Expected single quote to termiante the character!");
+   }
+
+   (*index)++;
+   
+   charToken.length = 1;
+   charToken.text = charcpy(&character, 1);
+   tokens->pop_back();
+   tokens->push_back(charToken);
+}
+
+	
 int byEscapedCharacter(char c) {
    switch(c) {
       case 'n': return '\n';
@@ -823,6 +959,7 @@ int byEscapedCharacter(char c) {
       case '\"': return '\"';
       case '?': return '\?';
       case '0': return '\0';
+      case '\'': return '\'';
       default:
          return -1;
          break;
@@ -840,6 +977,7 @@ char* evaluateUnicode(char* text, int *index, vector<Token> *tokens, int length)
       verifyError(tokens, tokens->size() - 1, "Non-hex character found in unicode sequence!");
    } 
 
+   // TODO: Fix character representation and remove placeholder
    char *placeholder = reinterpret_cast<char*>(malloc(2));
    placeholder[0] = '?';
    placeholder[1] = '\0';
@@ -957,10 +1095,11 @@ Token nextKeywordToken(char *text, int length) {
 
 /* verify */
 
-void verify(vector<Token> *tokens) {
+TokenResult* verify(vector<Token> *tokens) {
    cout << "verify: " << endl;
    TokenResult *result = verifyContext(contextNode, tokens, 0);
    cout << "Parsing success: " << result->isSatisfied() << endl;
+   return result;
 }
 
 TokenResult* verifyContext(TokenNode *node, vector<Token> *list, int index) {
@@ -1239,6 +1378,7 @@ void initStatements() {
       TokenType::Identifier,
       TokenType::Number,
       TokenType::String,
+      TokenType::Char
    })->inMode(TokenMode::BRANCH)->withName("primitivebare");
 
    TokenNode *primitive = (new TokenNode {
@@ -1704,7 +1844,7 @@ void verifyError(vector<Token> *tokens, int index) {
 
 /* unify */
 
-Statement unify(TokenResult *context) {
+Context* unify(Statement* owner, TokenResult *context) {
   for(variant<TokenResult*, Token> statement : *(context->getTokens())) {
     if(holds_alternative<Token>(statement)) {
        verifyError(tokenList, get<Token>(statement).index, "Expected statement, not individual token!");
@@ -1713,23 +1853,30 @@ Statement unify(TokenResult *context) {
   }
 }
 
-Statement unifyStatement(TokenResult *statement) {
+Statement* unifyStatement(TokenResult *statement) {
    //TokenNode node; 
 }
 
-Statement unifyCreate(TokenResult *context);
-Statement unifyDelete(TokenResult *context);
-Statement unifySet(TokenResult *context);
-Statement unifyFor(TokenResult *context);
-Statement unifyWhile(TokenResult *context);
-Statement unifyIf(TokenResult *context);
-Statement unifyFunction(TokenResult *context);
-Statement unifyLambda(TokenResult *context);
-Statement unifyInvoke(TokenResult *context);
-Statement unifyIncrement(TokenResult *context);
-Statement unifyDecrement(TokenResult *context);
-Statement unifyExit(TokenResult *context);
-Statement unifyValues(TokenResult *context);
+Statement* unifyCreate(TokenResult *context);
+Statement* unifyDelete(TokenResult *context);
+Statement* unifySet(TokenResult *context);
+Statement* unifyFor(TokenResult *context);
+Statement* unifyWhile(TokenResult *context);
+Statement* unifyIf(TokenResult *context);
+Statement* unifyFunction(TokenResult *context);
+Statement* unifyLambda(TokenResult *context);
+Statement* unifyInvoke(TokenResult *context);
+Statement* unifyIncrement(TokenResult *context);
+Statement* unifyDecrement(TokenResult *context);
+Statement* unifyExit(TokenResult *context);
+
+Statement* unifyValue(TokenResult *value) {
+   Unresolved unresolved(value);
+   vector<Token>* references = unresolved.getReferences();
+   for(Token& t : *references) {
+      cout << t.text << endl;
+   }
+}
 
 /* util */
 
@@ -1872,8 +2019,9 @@ const char* getTokenTypeByInt(int num) {
       case 28: text = "Not"; break;
       case 29: text = "Separator"; break;
       case 30: text = "NewLine"; break;
-      case 31: text = "Other"; break;
-      case 32: text = "EoF"; break;
+      case 31: text = "Char"; break;
+      case 32: text = "Other"; break;
+      case 33: text = "EoF"; break;
    }
 
    return text;
