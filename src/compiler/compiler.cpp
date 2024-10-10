@@ -546,30 +546,11 @@ class Statement {
    public:
       Statement(const char *name) {
          this->name = name;
-      }
-
-      const char* getName() {
-         return this->name;
-      }
-
-   private:
-      const char *name;
-};
-
-class Context {
-   public:
-      Context(const char *name, Statement* owner) {
-         this->name = name;
-	 this->owner = owner;
 	 this->statements = new vector<Statement*>();
       }
 
       const char* getName() {
          return this->name;
-      }
-      
-      const Statement* getOwner() {
-         return this->owner;
       }
 
       vector<Statement*>* getStatements() {
@@ -579,8 +560,8 @@ class Context {
       void add(Statement *statement) {
 	 this->statements->push_back(statement);
       }
+
    private:
-      const Statement *owner;
       const char *name;
       vector<Statement*> *statements;
 };
@@ -682,7 +663,7 @@ void verifyError(vector<Token> *tokens, int index, const char *text);
 
 // UNIFY (LEVEL 3)
 
-Context* unify(Statement* owner, TokenResult *context);
+Statement* unify(Statement* container, TokenResult *context);
 Statement* unifyStatement(TokenResult *statement);
 Statement* unifyCreate(TokenResult *statement);
 Statement* unifyDelete(TokenResult *statement);
@@ -734,10 +715,22 @@ int main(int argsCount, char **args) {
 
    string contentStr = readFile(inputFileName.c_str());
    char *content = charcpy(contentStr.c_str(), contentStr.length());
+   int size = contentStr.length() + 128;
+
+   char *buf = static_cast<char*>(malloc(size));
+   memcpy(buf, contentStr.c_str(), size - 128);
+
+   for(int i = size - 128; i < size; i++) {
+      if(i % 2 == 0) {
+         buf[i] = '\0';
+      } else {
+         buf[i] = '%';
+      }
+   }
 
    cout << content << endl;
    
-   vector<Token> tokens = tokenize(content, contentStr.length());
+   vector<Token> tokens = tokenize(buf, contentStr.length());
    tokenList = &tokens;
 
    for(Token token : tokens) {
@@ -753,7 +746,7 @@ int main(int argsCount, char **args) {
    TokenResult *result = verify(&tokens);
    
    cout << "Unifying statements..." << endl;
-   Context *context = unify(nullptr, result);
+   Statement *context = unify(nullptr, result);
 
    return 0;
 }
@@ -761,7 +754,6 @@ int main(int argsCount, char **args) {
 /* tokenizer */
 
 vector<Token> tokenize(char *text, int length) {
-   char *buf = static_cast<char*>(malloc());
    bool comment = false;
    int index = 0;
    vector<Token> tokens;
@@ -1844,20 +1836,30 @@ void verifyError(vector<Token> *tokens, int index) {
 
 /* unify */
 
-Context* unify(Statement* owner, TokenResult *context) {
-  for(variant<TokenResult*, Token> statement : *(context->getTokens())) {
+Context* unify(Statement* owner, TokenResult *result) {
+  
+  for(variant<TokenResult*, Token> statement : *(result->getTokens())) {
     if(holds_alternative<Token>(statement)) {
        verifyError(tokenList, get<Token>(statement).index, "Expected statement, not individual token!");
     }
     unifyStatement(get<TokenResult*>(statement));
   }
+  return nullptr;
 }
 
 Statement* unifyStatement(TokenResult *statement) {
    //TokenNode node; 
+   switch(statement->getNode()->getName()) {
+      case "create": return unifyCreate();
+	      break;
+   }   
+   return nullptr;
 }
 
-Statement* unifyCreate(TokenResult *context);
+Statement* unifyCreate(TokenResult *context) {
+
+}
+
 Statement* unifyDelete(TokenResult *context);
 Statement* unifySet(TokenResult *context);
 Statement* unifyFor(TokenResult *context);
@@ -1871,11 +1873,13 @@ Statement* unifyDecrement(TokenResult *context);
 Statement* unifyExit(TokenResult *context);
 
 Statement* unifyValue(TokenResult *value) {
+   cout << "Unifying value..." << endl;
    Unresolved unresolved(value);
    vector<Token>* references = unresolved.getReferences();
    for(Token& t : *references) {
       cout << t.text << endl;
    }
+   return nullptr;
 }
 
 /* util */
