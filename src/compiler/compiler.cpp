@@ -895,7 +895,7 @@ void evaluateChar(char* text, int *index, vector<Token> *tokens, int length) {
    Token charToken;
    charToken.type = TokenType::Char;
    charToken.index = tokens->size();
-   charToken.text = charcpy(&text[(*index)], 2);
+   charToken.text = charcpy(&text[(*index)], length - index);
    charToken.length = 2;
    tokens->push_back(charToken);
    
@@ -1836,8 +1836,11 @@ void verifyError(vector<Token> *tokens, int index) {
 
 /* unify */
 
-Context* unify(Statement* owner, TokenResult *result) {
-  
+Statement* unify(Statement* owner, TokenResult *result) {
+  if(owner == nullptr) {
+     owner = new Statement("root");
+  }
+
   for(variant<TokenResult*, Token> statement : *(result->getTokens())) {
     if(holds_alternative<Token>(statement)) {
        verifyError(tokenList, get<Token>(statement).index, "Expected statement, not individual token!");
@@ -1847,7 +1850,7 @@ Context* unify(Statement* owner, TokenResult *result) {
   return nullptr;
 }
 
-Statement* unifyStatement(TokenResult *statement) {
+Statement* unifyStatement(TokenResult *result) {
    //TokenNode node; 
    switch(statement->getNode()->getName()) {
       case "create": return unifyCreate();
@@ -1856,20 +1859,20 @@ Statement* unifyStatement(TokenResult *statement) {
    return nullptr;
 }
 
-Statement* unifyCreate(TokenResult *context) {
-
+Statement* unifyCreate(TokenResult *result) {
+   
 }
 
-Statement* unifyDelete(TokenResult *context);
-Statement* unifySet(TokenResult *context);
-Statement* unifyFor(TokenResult *context);
-Statement* unifyWhile(TokenResult *context);
-Statement* unifyIf(TokenResult *context);
-Statement* unifyFunction(TokenResult *context);
-Statement* unifyLambda(TokenResult *context);
-Statement* unifyInvoke(TokenResult *context);
-Statement* unifyIncrement(TokenResult *context);
-Statement* unifyDecrement(TokenResult *context);
+Statement* unifyDelete(TokenResult *result);
+Statement* unifySet(TokenResult *result);
+Statement* unifyFor(TokenResult *result);
+Statement* unifyWhile(TokenResult *result);
+Statement* unifyIf(TokenResult *result);
+Statement* unifyFunction(TokenResult *result);
+Statement* unifyLambda(TokenResult *result);
+Statement* unifyInvoke(TokenResult *result);
+Statement* unifyIncrement(TokenResult *result);
+Statement* unifyDecrement(TokenResult *result);
 Statement* unifyExit(TokenResult *context);
 
 Statement* unifyValue(TokenResult *value) {
