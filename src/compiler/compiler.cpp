@@ -170,6 +170,10 @@ class TokenResult {
          return this->node;
       }
 
+      void setNode(TokenNode *node) {
+         this->node = node;
+      }
+
       int getTokenCount() {
          int count = 0;
 	 for(variant<TokenResult*, Token>& v : this->tokens) {
@@ -230,6 +234,10 @@ class TokenResult {
 	 return count;
       }
 
+      Token* getFirstToken() {
+	 return getFirstForResult(this);
+      }
+
       void setEof() {
 	 this->eof_ = true;
       }
@@ -248,7 +256,25 @@ class TokenResult {
          }
          return false;
       }
+
    private:
+      Token* getFirstForResult(TokenResult *result) {
+         for(variant<TokenResult*, Token>& v : *(result->getTokens())) {
+            if(holds_alternative<Token>(v)) {
+               return &(get<Token>(v));
+	    } else {
+               TokenResult *subResult = get<TokenResult*>(v);
+               if(subResult->isSatisfied()) {
+                  Token *any = getFirstForResult(subResult);
+		  if(any != nullptr) {
+                     return any;
+		  }
+               }
+            }
+         }
+	 return nullptr;
+      }
+
       char *message;
       TokenNode *node;
       bool satisfied;
@@ -266,7 +292,7 @@ enum class PointerType {
    MEMORY
 };
 
-enum class BasicType {
+enum class BaseType {
    Bool,
    Byte,
    Char,
@@ -275,7 +301,7 @@ enum class BasicType {
    Float,
    Double,
    Long,
-   Pointer
+   Void
 };
 
 enum class Operator {
@@ -293,12 +319,12 @@ enum class Operator {
 
 class Type {
    public:
-      Type(variant<BasicType, const char*> type) {
+      Type(variant<BaseType, const char*> type) {
          this->type = type;
 	 this->genericTypes = new vector<Type*>();
       }
 
-      variant<BasicType, const char*> getBasicType() {
+      variant<BaseType, const char*> getBaseType() {
          return this->type;
       }
 
@@ -315,7 +341,7 @@ class Type {
       }
 
    private:
-      variant<BasicType, const char*> type;
+      variant<BaseType, const char*> type;
       vector<Type*> *genericTypes;
 };
 
@@ -324,7 +350,7 @@ class Variable {
    public:
       Variable(PointerType pointerType, Type type, const char* identifier = nullptr, long value = 0)
       : pointerType(pointerType), type(type), value(value) {
-         if (identifier) {
+         if (identifier != nullptr) {
             identifier = charcpy(identifier, strlen(identifier));
          }
       }
@@ -380,12 +406,14 @@ class Unresolved {
 
       vector<Token>* getReferences() {
          vector<Token> *list = new vector<Token>();
-	 resolve(list, this->value, true); 
+	 resolve(list, this->value, true);
+	 return list; 
       }
 
       vector<Token>* getConstants() {
          vector<Token> *list = new vector<Token>();
 	 resolve(list, this->value, false); 
+         return list;
       }
    private:
       void resolve(vector<Token> *list, TokenResult *target, bool ids) {
@@ -678,6 +706,8 @@ Statement* unifyIncrement(TokenResult *statement);
 Statement* unifyDecrement(TokenResult *statement);
 Statement* unifyExit(TokenResult *statement);
 Statement* unifyValue(TokenResult *value);
+Type* unifyType(TokenResult *result);
+variant<BaseType, const char*> unifyBaseType(Token *basicTypeToken);
 
 // VALIDATOR (LEVEL 3)
 
@@ -890,17 +920,25 @@ void evaluateString(char* text, int *index, vector<Token> *tokens, int length) {
 }
 
 void evaluateChar(char* text, int *index, vector<Token> *tokens, int length) {
-   cout << endl << "Char: " << text[(*index)] << endl;
-   
    Token charToken;
    charToken.type = TokenType::Char;
    charToken.index = tokens->size();
-   charToken.text = charcpy(&text[(*index)], length - index);
-   charToken.length = 2;
+
+   int end = *index;
+   for(int i = end; i < length; i++) {
+      char c = text[i];
+      end = i;
+      if(c == '\0' || c == '\n') {
+         break;
+      }
+   }
+
+   charToken.text = charcpy(&text[(*index)], end - *index);
+   charToken.length = end - *index;
    tokens->push_back(charToken);
    
    (*index)++;
-   char character;
+   char *character;
    
    if(*index + 1 >= length) {
       verifyError(tokens, tokens->size() - 1, "Char was never terminated!");
@@ -911,29 +949,33 @@ void evaluateChar(char* text, int *index, vector<Token> *tokens, int length) {
    if(text[(*index)] == '\\') {
       char next = text[(*index) + 1];
       if(next == 'u') {
-         character = evaluateUnicode(text, index, tokens, length)[0];
+         character = evaluateUnicode(text, index, tokens, length);
 	 (*index) += 6;
       } else {
 	 int escapedValue = byEscapedCharacter(next);
          if(escapedValue == -1) {
             verifyError(tokens, tokens->size() - 1, "Unknown escaped character!");
          }
-         character = (char) escapedValue;
+         character = reinterpret_cast<char*>(malloc(2));
+         character[0] = (char) escapedValue;
+	 character[1] = '\0';
          (*index) += 2; 
       }
    } else {
-      character = text[(*index)];
+      character = reinterpret_cast<char*>(malloc(2));
+      character[0] = text[(*index)];
+      character[1] = '\0';
       (*index)++;
    }
   
    if(text[(*index)] != '\'') {
-      verifyError(tokens, tokens->size() - 1, "Expected single quote to termiante the character!");
+      verifyError(tokens, tokens->size() - 1, "Expected single quote to terminate the character!");
    }
 
    (*index)++;
    
-   charToken.length = 1;
-   charToken.text = charcpy(&character, 1);
+   charToken.length = strlen(character);
+   charToken.text = charcpy(character, charToken.length);
    tokens->pop_back();
    tokens->push_back(charToken);
 }
@@ -969,10 +1011,16 @@ char* evaluateUnicode(char* text, int *index, vector<Token> *tokens, int length)
       verifyError(tokens, tokens->size() - 1, "Non-hex character found in unicode sequence!");
    } 
 
-   // TODO: Fix character representation and remove placeholder
-   char *placeholder = reinterpret_cast<char*>(malloc(2));
-   placeholder[0] = '?';
-   placeholder[1] = '\0';
+   char *placeholder = reinterpret_cast<char*>(malloc(3));
+
+   if(value > 127) {
+      placeholder[0] = (char) 194; // UTF-8 2 byte encoding
+      placeholder[1] = (char) value;
+      placeholder[2] = '\0';
+   } else {
+      placeholder[0] = (char) value;
+      placeholder[1] = '\0';
+   }
 
    return placeholder;
 }
@@ -1068,13 +1116,10 @@ Token nextIdentifierToken(char *text, int length) {
 }
 
 Token nextKeywordToken(char *text, int length) {
-   cout << "TEXT SEARCH: " << text << endl;
-   
    int basetypeLength = arrayFind(&basetypes, text, length);
    int keywordLength = arrayFind(&keywords, text, length);
 
    if(keywordLength + basetypeLength < 1) {
-      cout << "TEXT NOT FOUND: " << text << endl;
       return nextIdentifierToken(text, length);
    }
 
@@ -1214,8 +1259,6 @@ TokenResult* verifyVariant(variant<TokenNode*, TokenType, const char*> *variantO
       } 
 
       if(tokens->at(index).type == TokenType::EoF) {
-	 const char *msg = "Wanted to check for more tokens, but the file suddenly ended! You can't just stop typing... :c";
-         
          cout << "RAN INTO EOF: THIS PART IS OPTIONAL THOUGH: IGNORING" << endl;
          result->setSatisfied(false);
          result->setEof();
@@ -1307,7 +1350,9 @@ TokenResult* verifyBranch(TokenNode *node, vector<Token> *tokens, int index) {
    for(variant<TokenNode*, TokenType, const char*> variantObj : *(node->getList())) {
       TokenResult *branchResult = verifyVariant(&variantObj, tokens, index);
       if(branchResult->isSatisfied()) {
-	 return branchResult;
+         TokenResult *result = new TokenResult(node, true);
+         result->add(branchResult);
+	 return result;
       } else if(branchResult->getTokenCount() > max->getTokenCount()) {
 	 max = branchResult;
          debugBranchFail(variantObj, node);
@@ -1707,8 +1752,10 @@ void initStatements() {
    TokenNode *create_ = (new TokenNode {
       "create",
       TokenType::Identifier,
-      addonType->inMode(TokenMode::ONCE_OR_NONE),
-      addonValueAssign->inMode(TokenMode::ONCE_OR_NONE)
+      (new TokenNode {
+         addonType->inMode(TokenMode::ONCE_OR_NONE),
+         addonValueAssign->inMode(TokenMode::ONCE_OR_NONE)
+      })->inMode(TokenMode::BRANCH)
    })->withName("create");
 
    // DELETE
@@ -1807,7 +1854,7 @@ void verifyError(vector<Token> *tokens, int index) {
    
    int lineErrorIndex = 0;
 
-   for(int i = tokenIndex + 1; i < tokens->size(); i++) {
+   for(int i = tokenIndex; i < tokens->size(); i++) {
       if(i <= index) {
          lineErrorIndex += (*tokens)[i].length;
       }
@@ -1819,6 +1866,8 @@ void verifyError(vector<Token> *tokens, int index) {
       }
       if(tokens->at(i).type == TokenType::String) {
          cerr << "\"" <<(*tokens)[i].text << "\"";
+      } else if(tokens->at(i).type == TokenType::Char) {
+         cerr << "'" <<(*tokens)[i].text << "'";
       } else {
          cerr << (*tokens)[i].text;
       }
@@ -1826,7 +1875,7 @@ void verifyError(vector<Token> *tokens, int index) {
 
    cerr << endl;
 
-   for(int i = 0; i < lineErrorIndex - 2; i++) {
+   for(int i = 0; i < lineErrorIndex - 1; i++) {
       cerr << "-";
    }
 
@@ -1850,17 +1899,37 @@ Statement* unify(Statement* owner, TokenResult *result) {
   return nullptr;
 }
 
+Type unifyType(TokenResult *result) {
+   
+}
+
 Statement* unifyStatement(TokenResult *result) {
    //TokenNode node; 
-   switch(statement->getNode()->getName()) {
-      case "create": return unifyCreate();
-	      break;
-   }   
+   string name = result->getNode()->getName();
+
+   if("create" == name) { return unifyCreate(result); } else  
+   if("delete" == name) { return unifyCreate(result); } else  
+   if("for" == name) { return unifyCreate(result); } else  
+   if("set" == name) { return unifyCreate(result); } else  
+   if("while" == name) { return unifyCreate(result); } else  
+   if("if" == name) { return unifyCreate(result); } else  
+   if("invoke" == name) { return unifyCreate(result); } else  
+   if("function" == name) { return unifyCreate(result); } else  
+   if("return" == name) { return unifyCreate(result); } else  
+   if("exit" == name) { return unifyCreate(result); } else  
+   if("increment" == name) { return unifyCreate(result); } else  
+   if("decrement" == name) { return unifyCreate(result); } else {
+      verifyError(tokenList, result->getFirstToken()->index, "Unexpected statement!");
+   }
    return nullptr;
 }
 
 Statement* unifyCreate(TokenResult *result) {
+   cout << "Unify: " << "create" << endl;
+   verifyError(tokenList, result->getFirstToken()->index, "Unexpected statement!");
+   Token *identifier = &(get<Token>(result->getTokens()->at(1)));
    
+   return nullptr;
 }
 
 Statement* unifyDelete(TokenResult *result);
@@ -1883,6 +1952,47 @@ Statement* unifyValue(TokenResult *value) {
       cout << t.text << endl;
    }
    return nullptr;
+}
+
+Type* unifyType(TokenResult *result) {
+   TokenNode *node = &(result->getNode());
+   
+   if(node == nullptr) { 
+      Token typeToken = result->getFirstToken();
+      Type *type = new Type(unifyBaseType(typeToken));
+      
+   } else if(string(node->getName()) == "type") {
+      Token typeToken = result->getFirstToken();
+      return new Type(unifyBaseType(typeToken));
+   } else {
+      verifyError(tokenList, result->getFirstToken()->index, "Error unifying Type: Expected type or generic type!");
+      return nullptr;
+   }
+}
+
+Type* unfiyTypeGeneric(TokenResult *result) {
+   Token typeToken = result->getFirstToken();
+   Type *type = new Type(unifyBaseType(typeToken));
+   TokenResult* 
+}
+
+variant<BaseType, const char*>* unifyBaseType(Token *typeToken) {
+   if(typeToken->type == TokenType::Identifier) {
+      return new variant<BaseType, const char*>(typeToken->text);
+   } else {
+      string type = typeToken->text;
+      if(type == "bool") { return BaseType::Bool; } else
+      if(type == "char") { return BaseType::Char; } else
+      if(type == "byte") { return BaseType::Byte; } else
+      if(type == "int") { return BaseType::Int; } else
+      if(type == "float") { return BaseType::Float; } else
+      if(type == "double") { return BaseType::Double; } else
+      if(type == "long") { return BaseType::Long; } else
+      if(type == "void") { return BaseType::Void; } else {
+         verifyError(tokenList, typeToken->index, "Error unifying BaseType: Expected one of [bool, char, byte, int, float, double, long, void]!");
+         return nullptr;
+      }
+   }
 }
 
 /* util */
