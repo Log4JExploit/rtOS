@@ -238,6 +238,28 @@ class TokenResult {
 	 return getFirstForResult(this);
       }
 
+      Token popToken() {
+         if(!holds_alternative<Token>(this->tokens.at(0))) {
+            cerr << "Attempted token pop, but found result!" << endl;
+            exit(1);
+         }
+         
+         Token token = get<Token>(this->tokens.at(0));
+         this->tokens.erase(this->tokens.begin());
+         return token;
+      }
+      
+      TokenResult* popResult() {
+         if(!holds_alternative<TokenResult*>(this->tokens.at(0))) {
+            cerr << "Attempted result pop, but found token!" << endl;
+            exit(1);
+         }
+         
+         TokenResult *result = get<TokenResult*>(this->tokens.at(0));
+         this->tokens.erase(this->tokens.begin());
+         return result;
+      }
+
       void setEof() {
 	 this->eof_ = true;
       }
@@ -332,7 +354,7 @@ class Type {
          return this->genericTypes->size() >= 0;
       }
 
-      void setGenericType(Type *type) {
+      void addGenericType(Type *type) {
          this->genericTypes->push_back(type);
       }
 
@@ -706,8 +728,10 @@ Statement* unifyIncrement(TokenResult *statement);
 Statement* unifyDecrement(TokenResult *statement);
 Statement* unifyExit(TokenResult *statement);
 Statement* unifyValue(TokenResult *value);
+
 Type* unifyType(TokenResult *result);
-variant<BaseType, const char*> unifyBaseType(Token *basicTypeToken);
+Type* unifyTypeGeneric(TokenResult *result);
+Type* unifyBaseType(Token *basicTypeToken);
 
 // VALIDATOR (LEVEL 3)
 
@@ -1745,7 +1769,6 @@ void initStatements() {
 
    TokenNode *addonValueAssign = (new TokenNode {
       "set",
-      "to",
       value
    })->withName("createset");
 
@@ -1753,9 +1776,9 @@ void initStatements() {
       "create",
       TokenType::Identifier,
       (new TokenNode {
-         addonType->inMode(TokenMode::ONCE_OR_NONE),
-         addonValueAssign->inMode(TokenMode::ONCE_OR_NONE)
-      })->inMode(TokenMode::BRANCH)
+         addonValueAssign,
+         addonType
+      })->inMode(TokenMode::BRANCH)->withName("typeorassign")
    })->withName("create");
 
    // DELETE
@@ -1899,9 +1922,6 @@ Statement* unify(Statement* owner, TokenResult *result) {
   return nullptr;
 }
 
-Type unifyType(TokenResult *result) {
-   
-}
 
 Statement* unifyStatement(TokenResult *result) {
    //TokenNode node; 
@@ -1924,11 +1944,31 @@ Statement* unifyStatement(TokenResult *result) {
    return nullptr;
 }
 
+void printResult(TokenResult *result) {
+   cout << (result->getNode() != nullptr ? result->getNode()->getName() : "()") << " { ";
+
+   for(variant<TokenResult*, Token>& e : *(result->getTokens())) {
+      if(holds_alternative<TokenResult*>(e)) {
+         printResult(get<TokenResult*>(e));
+      } else {
+         cout << get<Token>(e).text << ", ";
+      }
+   }
+
+   cout << " } ";
+}
+
 Statement* unifyCreate(TokenResult *result) {
    cout << "Unify: " << "create" << endl;
-   verifyError(tokenList, result->getFirstToken()->index, "Unexpected statement!");
-   Token *identifier = &(get<Token>(result->getTokens()->at(1)));
-   
+   Token create = result->popToken();
+   Token identifier = result->popToken();
+
+   TokenResult* next = result->popResult();
+   if(string(next->getNode()->getName()) == "createset") {
+      
+   } else { // typeorassign
+       
+   }
    return nullptr;
 }
 
@@ -1955,43 +1995,66 @@ Statement* unifyValue(TokenResult *value) {
 }
 
 Type* unifyType(TokenResult *result) {
-   TokenNode *node = &(result->getNode());
+   if(result->getNode() == nullptr || string(result->getNode()->getName()) != "type") {
+      cerr << "Compiler error: Invoked unifyType with result not of type type" << endl;
+      printResult(result);
+      exit(1); 
+   }
+
+   TokenResult *first = get<TokenResult*>(result->getTokens()->at(0));
+   TokenNode *node = first->getNode();
    
-   if(node == nullptr) { 
-      Token typeToken = result->getFirstToken();
-      Type *type = new Type(unifyBaseType(typeToken));
-      
-   } else if(string(node->getName()) == "type") {
-      Token typeToken = result->getFirstToken();
-      return new Type(unifyBaseType(typeToken));
+   if(node == nullptr) { // Result without template -> only one wrap enclosing the target token 
+      Token* typeToken = first->getFirstToken();
+      Type *type = unifyBaseType(typeToken);
+      return type;
+   } else if(string(node->getName()) == "typegeneric") {
+      return unifyTypeGeneric(first);
    } else {
-      verifyError(tokenList, result->getFirstToken()->index, "Error unifying Type: Expected type or generic type!");
+      verifyError(tokenList, result->getFirstToken()->index, "Error unifying Type: Expected primitive type or generic type!");
       return nullptr;
    }
 }
 
-Type* unfiyTypeGeneric(TokenResult *result) {
-   Token typeToken = result->getFirstToken();
-   Type *type = new Type(unifyBaseType(typeToken));
-   TokenResult* 
+Type* unifyTypeGeneric(TokenResult *result) {
+   Token *typeToken = result->getFirstToken();
+   Type *type = unifyBaseType(typeToken);
+   
+   TokenResult *list = get<TokenResult*>(result->getTokens()->at(2));
+   TokenResult* firstGenericResult = get<TokenResult*>(list->getTokens()->at(0));
+   
+   Type* firstGeneric = unifyType(firstGenericResult);
+   type->addGenericType(firstGeneric);   
+
+   if(list->getTokens()->size() == 2) {
+      list = get<TokenResult*>(list->getTokens()->at(1));
+      for(int i = 0; i < list->getTokens()->size(); i++) {
+         TokenResult *listEntryWrapper = get<TokenResult*>(list->getTokens()->at(i));
+         TokenResult *listEntry = get<TokenResult*>(listEntryWrapper->getTokens()->at(1));
+         Type* entryType = unifyType(listEntry);
+         type->addGenericType(entryType);
+      }
+   }
+
+   return type; 
 }
 
-variant<BaseType, const char*>* unifyBaseType(Token *typeToken) {
+Type* unifyBaseType(Token *typeToken) {
    if(typeToken->type == TokenType::Identifier) {
-      return new variant<BaseType, const char*>(typeToken->text);
-   } else {
-      string type = typeToken->text;
-      if(type == "bool") { return BaseType::Bool; } else
-      if(type == "char") { return BaseType::Char; } else
-      if(type == "byte") { return BaseType::Byte; } else
-      if(type == "int") { return BaseType::Int; } else
-      if(type == "float") { return BaseType::Float; } else
-      if(type == "double") { return BaseType::Double; } else
-      if(type == "long") { return BaseType::Long; } else
-      if(type == "void") { return BaseType::Void; } else {
-         verifyError(tokenList, typeToken->index, "Error unifying BaseType: Expected one of [bool, char, byte, int, float, double, long, void]!");
-         return nullptr;
-      }
+      return new Type(typeToken->text);
+   }
+   string type = typeToken->text;
+   if(type == "bool") { return new Type(BaseType::Bool); } else
+   if(type == "char") { return new Type(BaseType::Char); } else
+   if(type == "byte") { return new Type(BaseType::Byte); } else
+   if(type == "short") { return new Type(BaseType::Short); } else
+   if(type == "int") { return new Type(BaseType::Int); } else
+   if(type == "float") { return new Type(BaseType::Float); } else
+   if(type == "double") { return new Type(BaseType::Double); } else
+   if(type == "long") { return new Type(BaseType::Long); } else
+   if(type == "void") { return new Type(BaseType::Void); } else {
+      verifyError(tokenList, typeToken->index, "Error unifying BaseType: Expected one of [bool, char, byte, int, short, float, double, long, void]!");
+      return new Type(BaseType::Void);
    }
 }
 
